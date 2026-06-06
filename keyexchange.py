@@ -88,15 +88,23 @@ class DHParty:
         if peer_public in (1, P - 1):
             raise ValueError("peer public value in a small subgroup — rejected")
 
+    def raw_shared_secret(self, peer_public: int) -> bytes:
+        """The validated raw DH group element g^(ab) mod p as fixed-width bytes — NO KDF applied.
+
+        This is the building block for authenticated handshakes (see auth_keyexchange.py) that need
+        to MIX several DH results together before hashing. For a plain shared key, use shared_key()
+        which hashes this. Never hand the raw element to a cipher directly — it has algebraic bias."""
+        self._validate_peer(peer_public)
+        secret = pow(peer_public, self._private, P)
+        return secret.to_bytes((P.bit_length() + 7) // 8, "big")
+
     def shared_key(self, peer_public: int, info: bytes = b"") -> bytes:
         """Compute the shared secret g^(ab) mod p, then hash it down to a 32-byte master key.
 
         We never use the raw group element as the key — it has algebraic structure and bias. A
         SHA-512 KDF (domain-separated, optional `info` for binding) turns it into uniform bytes
         suitable as the chaos AEAD master_key. Both parties derive identical bytes."""
-        self._validate_peer(peer_public)
-        secret = pow(peer_public, self._private, P)
-        secret_bytes = secret.to_bytes((P.bit_length() + 7) // 8, "big")
+        secret_bytes = self.raw_shared_secret(peer_public)
         return hashlib.sha512(_KDF_LABEL + b"|" + info + b"|" + secret_bytes).digest()[:32]
 
 

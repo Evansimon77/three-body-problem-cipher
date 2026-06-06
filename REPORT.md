@@ -259,6 +259,49 @@ rejection, **determinism**, and that two different messages never share a keystr
 `C0 ⊕ C1 = M0 ⊕ M1` two-time-pad equality does **not** hold. 61/61 tests pass. Still **UNVETTED**:
 this fixes a *usage* foot-gun with a vetted construction; it does not change the chaos core's status.
 
+## v8 update — authenticated DH, the "secret handshake" (`auth_keyexchange.py`)
+
+`attacks/dh_mitm.py` (v5) showed plain DH falls to an active man-in-the-middle: Mallory swaps the
+public values, runs two exchanges, reads + edits everything. DH proves *nobody passive* can read you;
+it does **not** prove *who* you're talking to. The only prior defence was a human eyeballing a
+fingerprint every session. v8 bakes the identity check **into the key** so the impostor is defeated
+automatically.
+
+**Construction — triple-DH (static + ephemeral), the Noise / Signal-X3DH pattern.** Each party has a
+long-term **static** identity keypair (its fingerprint verified out-of-band ONCE, like SSH
+`known_hosts` / a Signal safety number) plus a fresh **ephemeral** keypair per session. The session
+key hashes three DH results:
+
+```
+ee = DH(my_ephemeral, peer_ephemeral)   # forward secrecy (fresh every session)
+es = DH(my_ephemeral, peer_STATIC)       # binds the peer's verified identity
+se = DH(my_STATIC,    peer_ephemeral)    # binds my verified identity
+session_key = SHA-512(label ‖ info ‖ ee ‖ sorted(es, se))[:32]
+```
+
+Both sides compute the same three group elements (`g^(xy) = g^(yx)`); the two cross-terms are sorted
+so order is role-independent.
+
+**Why the MITM now fails:** to read Alice, Mallory must reproduce `es = DH(Alice_ephemeral,
+Bob_STATIC)`, which needs Alice's ephemeral private *or* Bob's static private — Mallory has **neither**.
+Her derived key can't match, the ciphertext won't open, and forgeries to Bob won't open either — with
+**no** human fingerprint check mid-session.
+
+| | Plain DH (`keyexchange.py`) | Authenticated DH (`auth_keyexchange.py`) |
+|---|---|---|
+| Passive eavesdropper | Defeated ✅ | Defeated ✅ |
+| Active man-in-the-middle | **Succeeds** ❌ (no identity check) | **Defeated** ✅ (baked into key) |
+| Identity verification | Manual fingerprint, every session | Fingerprint verified **once**, then automatic |
+
+**Honest caveat:** the math authenticates *whoever's static key you verified*. If you verify the wrong
+fingerprint at first contact, you authenticated the wrong person — the same trust root as TLS
+certificates / SSH first-connect. Security still rests on 2048-bit discrete log (vetted), not chaos.
+
+**Measured:** `tests/test_auth_keyexchange.py` (10 new) — honest parties agree, info-binding works, feeds
+the AEAD end-to-end, and a MITM/impostor lacking the static private **cannot** derive the key or open
+the message; `attacks/auth_dh_mitm.py` runs the full middleman scenario and shows it FAILS. 71/71 tests
+pass. The chaos bulk cipher remains **UNVETTED** — DH is the sound part.
+
 ## Reproduce
 
 ```bash
@@ -269,6 +312,8 @@ python keyexchange.py
 python attacks/dh_mitm.py
 python attacks/core_cryptanalysis.py   # v6 clever-burglar cryptanalysis (bias hunt + independence + MITM)
 python siv.py                          # v7 SIV seatbelt demo (nonce-misuse-resistant AEAD)
+python auth_keyexchange.py             # v8 authenticated DH "secret handshake" demo
+python attacks/auth_dh_mitm.py         # v8 same MITM as attack 3, now DEFEATED
 bash bench/randomness.sh /tmp/ks.bin 100   # dumps 100 MB of the shipped keystream + ent
 python tests/test_period.py
 python tests/test_avalanche.py

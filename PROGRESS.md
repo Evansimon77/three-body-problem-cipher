@@ -1,6 +1,6 @@
 # Chaos Cipher (Progress)
 
-Last updated: 2026-06-06 | Branch: nonce-misuse-siv (pre-merge) | Status: 🔬 SECURITY-HARDENING PHASE — Suggestion 1 (clever-burglar cryptanalysis) merged to main; Suggestion 2 (nonce-misuse resistance / "the seatbelt") DONE & measured: built `siv.py` — deterministic SIV AEAD, no nonce to reuse, different messages never share a keystream (two-time-pad break structurally gone). 61/61 tests pass. Resume point: decide merge to main, then Suggestion 3 (DH authentication). End-goal unchanged: harden, then deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data.
+Last updated: 2026-06-06 | Branch: auth-dh-handshake (pre-merge) | Status: 🔬 SECURITY-HARDENING PHASE — **all 3 hardening suggestions DONE.** Suggestion 1 (cryptanalysis) + Suggestion 2 (SIV seatbelt) merged to main; Suggestion 3 (authenticated DH / "secret handshake") DONE & measured: built `auth_keyexchange.py` — triple-DH (static+ephemeral, Noise/X3DH pattern); the active man-in-the-middle that broke plain DH now FAILS automatically. 71/71 tests pass. Resume point: decide merge to main, then specify the **Option-B integration contract** with AsturAI (where the chaos layer sits over a vetted AEAD). End-goal unchanged: harden, then deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data.
 
 ## 🎯 Goal
 Build and **rigorously prove/disprove** a chaos-based stream cipher (integer PWLCM keystream)
@@ -18,8 +18,10 @@ with user (Suggestion 1 → 2 → 3):
 - [x] **Suggestion 2 — nonce-misuse resistance** ("the seatbelt", `siv.py`, REPORT v7). DONE, pre-merge on `nonce-misuse-siv`.
       Deterministic SIV AEAD: IV = HMAC(K, aad‖plaintext) used as both keystream IV and auth tag. No nonce to reuse;
       different messages never share a keystream (C0⊕C1=M0⊕M1 two-time-pad equality no longer holds). 61/61 tests pass.
-- [ ] **Suggestion 3 — DH authentication** (fingerprint/signature) — close the MITM gap in `attacks/dh_mitm.py`. ← NEXT after merging Suggestion 2.
-- [ ] Specify the **Option-B integration contract** with AsturAI: where the chaos layer sits, what vetted AEAD it wraps, the order of operations.
+- [x] **Suggestion 3 — DH authentication** (`auth_keyexchange.py`, REPORT v8). DONE, pre-merge on `auth-dh-handshake`.
+      Triple-DH (static+ephemeral, Noise/X3DH pattern): session key mixes ee + es + se, so a MITM lacking a
+      party's static private can't derive it. `attacks/auth_dh_mitm.py` shows the old MITM now FAILS. 71/71 tests pass.
+- [ ] **Specify the Option-B integration contract** with AsturAI: where the chaos layer sits, what vetted AEAD it wraps, the order of operations. ← NEXT after merging Suggestion 3 (the bridge to real use).
 - [ ] (Deferred) Heavyweight randomness (dieharder/PractRand) — decided against 2026-06-06 unless explicitly wanted; randomness ≠ security.
 
 Optional capability polish (no security claim, lower priority):
@@ -61,6 +63,27 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 - ⚠️ ~700–800× slower than AES/ChaCha. **Still UNVETTED** — not for real data.
 
 ## Recent Work
+
+### ✅ DONE 2026-06-06: Suggestion 3 — authenticated DH, the "secret handshake"
+> Merged Suggestion 2 (`nonce-misuse-siv`) to `main` first (fast-forward `5f6f76d`). Then, on branch
+> `auth-dh-handshake`, built `auth_keyexchange.py` — **authenticated Diffie-Hellman** that closes the
+> active man-in-the-middle gap demonstrated in `attacks/dh_mitm.py`. Plain DH proves nobody *passive*
+> can read you but NOT *who* you're talking to; the only prior defence was a human eyeballing a
+> fingerprint each session. Now the identity check is baked into the key via the **triple-DH /
+> static+ephemeral** pattern (the vetted Noise-framework / Signal-X3DH construction — NOT homemade).
+> Each party has a long-term STATIC identity keypair (fingerprint verified out-of-band ONCE) plus a
+> fresh EPHEMERAL keypair per session; the session key = SHA-512(label‖info‖ee‖sorted(es,se)) where
+> ee=eph×eph (forward secrecy), es=eph×peer-STATIC, se=STATIC×peer-eph (the two identity binders).
+> **Why MITM fails:** to derive Alice's key Mallory must reproduce es=DH(Alice_eph, Bob_static), which
+> needs Alice's ephemeral private OR Bob's static private — she has neither, so her key can't match
+> and the ciphertext won't open (no manual check needed). Added `raw_shared_secret()` to `DHParty` as
+> the reusable building block (behaviour of `shared_key` unchanged). Proof: `attacks/auth_dh_mitm.py`
+> runs the full middleman scenario → FAILS; `tests/test_auth_keyexchange.py` (+10) covers agreement,
+> info-binding, end-to-end AEAD, MITM/impostor rejection, degenerate-key rejection. **71/71 tests
+> pass.** REPORT.md **v8** section + comparison table. Honest caveat: authenticates whoever's static
+> key you verified — wrong first-contact fingerprint = wrong person (same trust root as TLS/SSH);
+> security rests on 2048-bit discrete log (vetted), not chaos. **All three hardening suggestions now
+> DONE.** Pre-merge on `auth-dh-handshake`.
 
 ### ✅ DONE 2026-06-06: Suggestion 2 — the SIV "seatbelt" (nonce-misuse resistance)
 > Merged Suggestion 1 (`core-cryptanalysis`) to `main` first (fast-forward `859792f`). Then, on branch
