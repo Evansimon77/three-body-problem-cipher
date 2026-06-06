@@ -31,12 +31,20 @@ def chaos_multimap(nbytes):
     MultiMapEngine(b"benchmark-key", b"benchmark-nonce", n_maps=3).keystream(nbytes)
 
 
+def chaos_ctr(nbytes):
+    from ctr import SeekableCTR
+    SeekableCTR(b"benchmark-key", b"benchmark-nonce", n_maps=3).keystream(nbytes)
+
+
 def main():
     nbytes = 256 * 1024  # 256 KB; chaos engine is pure-Python so keep it modest
     print(f"Throughput (encrypting {nbytes//1024} KB of zeros):\n")
     c = bench("chaos PWLCM 1-map", chaos, nbytes)
     cm = bench("chaos multimap 3-map", chaos_multimap, nbytes)
-    print(f"  -> 3-map is {c/cm:.1f}x slower than 1-map (the honest cost of the fix)\n")
+    cc = bench("chaos CTR 3-map (seekable)", chaos_ctr, nbytes)
+    print(f"  -> 3-map is {c/cm:.1f}x slower than 1-map (the honest cost of the fix)")
+    print(f"  -> CTR (seekable) is {cm/cc:.1f}x slower than streaming 3-map "
+          f"(the honest cost of random access)\n")
 
     try:
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes

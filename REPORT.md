@@ -136,11 +136,31 @@ exactly the "prove it" goal. Nesting / N>3 was deliberately **not** adopted (cos
 sync risk for no real security gain past the brute-force wall); it stays a possible future
 *measured* experiment only.
 
+## v4 update — seekable CTR mode (`ctr.py`, `SeekableCTR`)
+
+A *capability* upgrade, not a security claim. The streaming engines are a tape — to read byte N you
+must generate 0..N-1. v4 adds counter mode: the keystream is cut into fixed `BLOCK_SIZE` blocks, and
+block *i* is derived independently from `(master_key, nonce, block_index=i)` via the same
+domain-separated SHA-512 KDF (block counter folded in). Exactly the AES-CTR construction, with the
+3-map chaos keystream as the PRF.
+
+| Aspect | Result |
+|---|---|
+| **Random access** | `keystream(n, offset=k)` returns global bytes `k..k+n-1`; only the covering block(s) are derived. `test_ctr.py::test_random_access_skips_earlier_blocks` confirms reading at position 1,000,000 derives **one** block, not a million. |
+| **Correctness** | Windowed reads match the full-stream slice across block boundaries; offset round-trips. `tests/` 35/35 pass (10 new in `test_ctr.py`). |
+| **Separation** | Distinct blocks are domain-separated ⇒ unrelated keystreams (strictly *more* separation than the streaming map's single continuous orbit). Avalanche ≈ 0.5; no short cycle in 100 KB. |
+| **Cost** | Each block pays a fresh KDF + warmup ⇒ CTR ≈ **1.2× slower** than the streaming 3-map (≈ 0.64 MB/s) at `BLOCK_SIZE=64`. The honest price of seekability + parallelizability. |
+| Still true | **UNVETTED.** Seekability is an engineering property; it inherits — and does not improve — the underlying chaos security. |
+
+**Net:** the cipher is now random-access addressable (decrypt the middle of a large file, or
+parallelize) while keeping every prior property. Security is unchanged; this is about usability.
+
 ## Reproduce
 
 ```bash
 pip install -r requirements.txt
 pytest tests/ -v
+python ctr.py
 python tests/test_period.py
 python tests/test_avalanche.py
 python bench/nist_lite.py
