@@ -1,6 +1,6 @@
 # Chaos Cipher (Progress)
 
-Last updated: 2026-06-06 | Branch: ctr-mode | Status: v4 seekable CTR built & proven (branch, pre-merge); v3 multi-map merged to main
+Last updated: 2026-06-06 | Branch: key-exchange | Status: v5 key-exchange built & proven (branch, pre-merge); roadmap (multi-map → CTR → key-exchange) COMPLETE
 
 ## 🎯 Goal
 Build and **rigorously prove/disprove** a chaos-based stream cipher (integer PWLCM keystream)
@@ -9,12 +9,14 @@ real standards. Engine-first; any real application is deferred until the evidenc
 (and even then, only as a layer over a vetted primitive).
 
 ## ⏭️ NEXT
-- [ ] **Merge `ctr-mode` → `main`** when ready (branch 2 proven; awaiting go-ahead).
-- [ ] **Branch 3 — Key-exchange layer**: let Alice & Bob agree a key without pre-sharing (DH-style).
+The original three-branch roadmap is **COMPLETE** (multi-map → CTR → key-exchange). Remaining is
+optional polish, no new security claims:
+- [ ] **Merge `key-exchange` → `main`** when ready (branch 3 proven; awaiting go-ahead).
+- [ ] (Optional) Install `ent` + `dieharder` (`brew install ent dieharder`) and run the full randomness battery on ≥100 MB.
 - [ ] (Optional) Wire `SeekableCTR` into `aead.py` as a selectable mode for large-file random access.
-- [ ] Install `ent` + `dieharder` (`brew install ent dieharder`) and run the full randomness battery on ≥100 MB.
+- [ ] (Optional) Add an authentication layer over DH (fingerprint/signature) to close the MITM gap shown in `attacks/dh_mitm.py`.
 
-✅ Branch 1 (multi-map) merged to `main`. ✅ Branch 2 (seekable CTR) DONE, see below.
+✅ Branch 1 (multi-map) merged. ✅ Branch 2 (seekable CTR) merged. ✅ Branch 3 (key-exchange) DONE, see below.
 
 ## What It Does
 Pure-integer PWLCM (modulus `M = 2^61 - 1`) generates a deterministic, cross-machine keystream;
@@ -46,6 +48,20 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 - ⚠️ ~700–800× slower than AES/ChaCha. **Still UNVETTED** — not for real data.
 
 ## Recent Work
+
+### ✅ DONE 2026-06-06: Branch 3 — key-exchange layer (`DHParty`) — built & PROVEN (roadmap complete)
+> Merged Branch 2 (`ctr-mode`) to `main` first (`5dccd04`). Then built `keyexchange.py`: classic
+> finite-field **Diffie-Hellman** over RFC 3526 MODP Group 14 (2048-bit safe prime, pure-integer
+> `pow()`). Both parties derive the same 32-byte key from exchanged *public* values; a SHA-512 KDF
+> turns the group element into a uniform key fed straight to `seal()` — **agree a key over an open
+> channel with zero pre-shared secret.** Deliberate design: vetted DH math for key agreement, chaos
+> only for the bulk cipher (NOT a homemade chaos key exchange — those are broken, and inventing one
+> would be the overclaim this project disproves; this is the v1 "layer over a vetted primitive"
+> advice made real). Kept the break-it ethos: `attacks/dh_mitm.py` shows a passive eavesdropper
+> FAILS (DH holds), an active man-in-the-middle SUCCEEDS against unauthenticated DH (honest
+> weakness), and a verified fingerprint catches it. Peer-value validation rejects small-subgroup
+> footguns (0/1/p−1/out-of-range). 49/49 tests pass (+14 in `test_keyexchange.py`). Committed
+> `d3b9cb7` on branch `key-exchange`, pushed, pre-merge. **Three-branch roadmap now COMPLETE.**
 
 ### ✅ DONE 2026-06-06: Branch 2 — seekable CTR mode (`SeekableCTR`) — built & PROVEN
 > Merged Branch 1 (`multi-map`) to `main` first (fast-forward `438b7a8`). Then built `ctr.py`:
