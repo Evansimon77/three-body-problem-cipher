@@ -1,0 +1,9 @@
+# Core test runner
+pytest>=8.0
+
+# Baseline ciphers for the speed benchmark (AES-256-CTR, ChaCha20)
+cryptography>=42.0
+
+# numpy is NOT required — the engine is pure-integer stdlib.
+# Optional external randomness batteries (install via Homebrew, not pip):
+#   brew install ent dieharder
