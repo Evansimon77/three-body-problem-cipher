@@ -20,13 +20,15 @@ to break it. Honest evaluation lives in `REPORT.md`.
 | **`PROGRESS.md`** (this folder) | 🧭 Living compass — what's DONE · what's NEXT · the GOAL. Read first on resume. |
 
 ## The "save" command
-When the user says **"save"** (or "save this" / "checkpoint"), do ALL of these in order:
-1. **Test** — run `python3 -m pytest tests/ -q`; only proceed if green (note it if not).
-2. **GitHub** — `git add -A && git commit -m "<concise what+why>" && git push`.
-3. **Obsidian** — prepend a dated entry to the `## 📜 Build Log` section of
+When the user says **"save"** (or "save this" / "checkpoint"), do exactly these three, in order:
+1. **GitHub** — `git add -A && git commit -m "<concise what+why>" && git push`.
+2. **Obsidian** — prepend a dated entry to the `## 📜 Build Log` section of
    `~/Documents/Cursor Code/Obsidian Vault/Vault/Chaos Cipher.md` (append-only; never delete).
-4. **PROGRESS.md** — update `Last updated` + the `NEXT` / `GOAL` and prepend a `✅ DONE <date>` entry.
+3. **PROGRESS.md** — update `Last updated` + the `NEXT` / `GOAL` and prepend a `✅ DONE <date>` entry.
 Report the commit hash, the branch, and the one-line log entry back to the user.
+
+**Tests are NOT part of save.** Running `python3 -m pytest tests/ -q` is a separate action —
+do it only when the user asks, or when verifying work on its own. Never gate or bundle it into save.
 
 ## Branching idea-exploration
 - New idea → `git checkout -b <idea-name>`; experiment, `save` along the way.

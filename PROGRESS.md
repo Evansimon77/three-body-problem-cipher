@@ -46,6 +46,12 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 
 ## Recent Work
 
+### ✅ DONE 2026-06-06: Decoupled tests from the "save" command
+> Clarified the workflow per user: **save = exactly three steps** (commit+push → Obsidian log →
+> PROGRESS.md update). Running `pytest` is now a **separate** action, done only on request or when
+> verifying work on its own — never bundled into or gating `save`. Updated project `CLAUDE.md` +
+> the `chaos-cipher-save-workflow` memory.
+
 ### ✅ DONE 2026-06-06: v2 AEAD shell + GitHub + three-pillar workflow
 > Added weak-parameter **rejection** (`MIN_P` band) + `from_master()` hash KDF (no weak key
 > reachable; the old `key=1,ctrl=1`→period-1 collapse is gone). Added **authentication** via a
