@@ -1,4 +1,4 @@
-# chaos-engine
+# chaos-cipher
 
 A discretized, pure-integer **Piecewise Linear Chaotic Map (PWLCM)** stream cipher, built to
 be **adversarially tested** — not trusted. This is the "engine first" phase: a self-contained
