@@ -231,6 +231,34 @@ caught and fixed during the run — a reminder that distinguishers must be built
 overclaim downward. Still **UNVETTED** — this is one careful round of self-attack, not public
 cryptanalysis.
 
+## v7 update — the SIV "seatbelt" (nonce-misuse resistance, `siv.py`)
+
+The plain shell (`aead.py`) is safe **only while every nonce is unique**. A reused nonce → same
+keystream → two-time-pad break. That makes the whole guarantee hinge on the caller never slipping
+once. `siv.py` removes the foot-gun: it is a **deterministic, nonce-misuse-resistant AEAD** in the
+proven SIV shape (Rogaway–Shrimpton / RFC 5297 AES-SIV), adapted to the chaos keystream.
+
+**Construction:** `SIV = HMAC-SHA256(K_siv, len(aad) ‖ aad ‖ plaintext)`; that 32-byte value is used
+as **both** the keystream IV *and* the auth tag. Wire format `SIV(32) ‖ ciphertext`. On open: decrypt
+with the received SIV, recompute the SIV from the recovered plaintext, constant-time compare; mismatch
+→ `InvalidTag`, plaintext never returned.
+
+| Property | Plain shell (`aead.py`) | SIV seatbelt (`siv.py`) |
+|---|---|---|
+| Nonce reuse possible? | Yes (caller-supplied / random collision) | **No nonce exists to reuse** |
+| Different messages share keystream? | Only on nonce reuse → break | **Never** (IV derived from the message) |
+| Identical messages | Differ (random nonce) | Identical (deterministic) — leaks *only* equality |
+| Authentication | Encrypt-then-MAC, HMAC-SHA256 | The SIV *is* the tag |
+
+**Trade-off (honest):** determinism means two equal plaintexts produce equal ciphertexts (the
+unavoidable minimum for any deterministic scheme). Escape hatch: put a random salt/counter in `aad`
+and even identical plaintexts seal differently — verified by `test_aad_separates_identical_plaintexts`.
+
+**Measured:** `tests/test_siv.py` (12 new) proves roundtrip, tamper/SIV-flip/truncation/wrong-key/AAD
+rejection, **determinism**, and that two different messages never share a keystream — i.e. the classic
+`C0 ⊕ C1 = M0 ⊕ M1` two-time-pad equality does **not** hold. 61/61 tests pass. Still **UNVETTED**:
+this fixes a *usage* foot-gun with a vetted construction; it does not change the chaos core's status.
+
 ## Reproduce
 
 ```bash
@@ -240,6 +268,7 @@ python ctr.py
 python keyexchange.py
 python attacks/dh_mitm.py
 python attacks/core_cryptanalysis.py   # v6 clever-burglar cryptanalysis (bias hunt + independence + MITM)
+python siv.py                          # v7 SIV seatbelt demo (nonce-misuse-resistant AEAD)
 bash bench/randomness.sh /tmp/ks.bin 100   # dumps 100 MB of the shipped keystream + ent
 python tests/test_period.py
 python tests/test_avalanche.py

@@ -1,6 +1,6 @@
 # Chaos Cipher (Progress)
 
-Last updated: 2026-06-06 | Branch: core-cryptanalysis (pre-merge) | Status: 🔬 SECURITY-HARDENING PHASE — Suggestion 1 (clever-burglar cryptanalysis) DONE & measured: 2 of 3 clever attacks found nothing, the 3rd (MITM) honestly corrected combiner strength 2^159 → ~2^122. Resume point: decide merge to main, then Suggestion 2 (nonce-misuse resistance / "the seatbelt"). End-goal unchanged: harden, then deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data.
+Last updated: 2026-06-06 | Branch: nonce-misuse-siv (pre-merge) | Status: 🔬 SECURITY-HARDENING PHASE — Suggestion 1 (clever-burglar cryptanalysis) merged to main; Suggestion 2 (nonce-misuse resistance / "the seatbelt") DONE & measured: built `siv.py` — deterministic SIV AEAD, no nonce to reuse, different messages never share a keystream (two-time-pad break structurally gone). 61/61 tests pass. Resume point: decide merge to main, then Suggestion 3 (DH authentication). End-goal unchanged: harden, then deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data.
 
 ## 🎯 Goal
 Build and **rigorously prove/disprove** a chaos-based stream cipher (integer PWLCM keystream)
@@ -13,11 +13,12 @@ real standards. Engine-first; any real application is deferred until the evidenc
 vetted primitive ("Option B" / defense-in-depth) to protect AsturAI client data — never the only lock.
 Each hardening idea must be *measured/attacked*, not asserted (project ethos). Three-step plan agreed
 with user (Suggestion 1 → 2 → 3):
-- [x] **Suggestion 1 — clever-burglar cryptanalysis** (`attacks/core_cryptanalysis.py`, REPORT v6). DONE.
+- [x] **Suggestion 1 — clever-burglar cryptanalysis** (`attacks/core_cryptanalysis.py`, REPORT v6). DONE & merged to main.
       Bias hunt = clean (2.52 σ), independence = confirmed (1.71 σ), MITM = honest correction 2^159→~2^122.
-- [ ] **Suggestion 2 — nonce-misuse resistance** ("the seatbelt"): SIV-style construction so a repeated
-      nonce can no longer cause a two-time-pad break. ← NEXT after merging Suggestion 1.
-- [ ] **Suggestion 3 — DH authentication** (fingerprint/signature) — close the MITM gap in `attacks/dh_mitm.py`.
+- [x] **Suggestion 2 — nonce-misuse resistance** ("the seatbelt", `siv.py`, REPORT v7). DONE, pre-merge on `nonce-misuse-siv`.
+      Deterministic SIV AEAD: IV = HMAC(K, aad‖plaintext) used as both keystream IV and auth tag. No nonce to reuse;
+      different messages never share a keystream (C0⊕C1=M0⊕M1 two-time-pad equality no longer holds). 61/61 tests pass.
+- [ ] **Suggestion 3 — DH authentication** (fingerprint/signature) — close the MITM gap in `attacks/dh_mitm.py`. ← NEXT after merging Suggestion 2.
 - [ ] Specify the **Option-B integration contract** with AsturAI: where the chaos layer sits, what vetted AEAD it wraps, the order of operations.
 - [ ] (Deferred) Heavyweight randomness (dieharder/PractRand) — decided against 2026-06-06 unless explicitly wanted; randomness ≠ security.
 
@@ -60,6 +61,22 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 - ⚠️ ~700–800× slower than AES/ChaCha. **Still UNVETTED** — not for real data.
 
 ## Recent Work
+
+### ✅ DONE 2026-06-06: Suggestion 2 — the SIV "seatbelt" (nonce-misuse resistance)
+> Merged Suggestion 1 (`core-cryptanalysis`) to `main` first (fast-forward `859792f`). Then, on branch
+> `nonce-misuse-siv`, built `siv.py` — a **deterministic, nonce-misuse-resistant AEAD** in the proven
+> SIV shape (Rogaway–Shrimpton / RFC 5297 AES-SIV) over the chaos keystream. The foot-gun it removes:
+> `aead.py` is safe **only while every nonce is unique**; one reused nonce → same keystream → two-time-pad
+> break. SIV deletes the foot-gun by having **no nonce at all** — the IV is synthesised from the message:
+> `SIV = HMAC-SHA256(K_siv, len(aad)‖aad‖plaintext)`, and that 32-byte value is used as **both** the
+> keystream IV **and** the auth tag (wire format `SIV(32)‖ciphertext`). On open: decrypt with the received
+> SIV, recompute it from the recovered plaintext, constant-time compare → mismatch raises `InvalidTag`,
+> plaintext never returned. **Guarantees:** different messages NEVER share a keystream (the classic
+> `C0⊕C1 = M0⊕M1` equality no longer holds — proven in `test_two_time_pad_cancellation_does_not_leak`);
+> identical messages seal identically (deterministic — leaks only equality, the unavoidable minimum), with
+> an escape hatch (random salt in `aad`) tested too. `tests/test_siv.py` adds 12 tests; **61/61 pass.**
+> REPORT.md **v7** section + comparison table added. Honest framing: this fixes a *usage* foot-gun with a
+> vetted construction; it does NOT change the chaos core's UNVETTED status. Pre-merge on `nonce-misuse-siv`.
 
 ### ✅ DONE 2026-06-06: Suggestion 1 — "clever-burglar" cryptanalysis of the 3-map combiner
 > Branch `core-cryptanalysis`. Built `attacks/core_cryptanalysis.py`: three attacks designed for a
