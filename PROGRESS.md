@@ -1,6 +1,6 @@
 # Chaos Cipher (Progress)
 
-Last updated: 2026-06-06 | Branch: main | Status: 🔬 SECURITY-HARDENING PHASE COMPLETE — **all 3 hardening suggestions DONE & merged to main** (`cdc598c`). Suggestion 1 (cryptanalysis), Suggestion 2 (SIV seatbelt), Suggestion 3 (authenticated DH / "secret handshake" — triple-DH, Noise/X3DH; the active man-in-the-middle that broke plain DH now FAILS automatically). 71/71 tests pass. Resume point: specify the **Option-B integration contract** with AsturAI (where the chaos layer sits as the outer wrap over a vetted AEAD). End-goal unchanged: deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data — never the only lock.
+Last updated: 2026-06-06 | Branch: main | Status: 🔬 SECURITY-HARDENING PHASE COMPLETE — **all 3 hardening suggestions DONE & merged to main** (`cdc598c`). Suggestion 1 (cryptanalysis), Suggestion 2 (SIV seatbelt), Suggestion 3 (authenticated DH / "secret handshake" — triple-DH, Noise/X3DH; the active man-in-the-middle that broke plain DH now FAILS automatically). 71/71 tests pass. Resume point: 🔖 **SPEED exploration** — sketch a fast "chaos + AES-NI-button" blended design (use AES hardware as a fast ingredient inside our cipher = Option B with a speed bonus). Already answered: blending AES in does NOT weaken us if combined correctly (independent keys + proven construction → AES is a safety floor). See "🔖 RESUME HERE" in NEXT. End-goal unchanged: deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data — never the only lock.
 
 ## 🎯 Goal
 Build and **rigorously prove/disprove** a chaos-based stream cipher (integer PWLCM keystream)
@@ -9,10 +9,31 @@ real standards. Engine-first; any real application is deferred until the evidenc
 (and even then, only as a layer over a vetted primitive).
 
 ## ⏭️ NEXT
-**New phase (2026-06-06): strengthen the cipher's security**, then deploy as the *outer* layer over a
-vetted primitive ("Option B" / defense-in-depth) to protect AsturAI client data — never the only lock.
-Each hardening idea must be *measured/attacked*, not asserted (project ethos). Three-step plan agreed
-with user (Suggestion 1 → 2 → 3):
+
+### 🔖 RESUME HERE (next session — speed + the "chaos + AES-button" blend)
+User wants to explore **SPEED** next. Context from the 2026-06-06 discussion:
+- Shipped 3-map cipher measured at **0.77 MB/s** (vs AES-256 ~2,146 MB/s, ChaCha20 ~1,905 MB/s →
+  ~2,500–2,800× slower). Pure-Python, byte-at-a-time, multiply-heavy = the speed cost.
+- Biggest cheap win = **leave Python** (rewrite hot loop in C/Rust, ~50–100×). Then **parallelize**
+  the 3 independent maps + CTR blocks (SIMD/multicore). Realistic ceiling ~100–500 MB/s = "feels instant."
+  Can't beat AES (its dedicated AES-NI silicon is AES-only) — honest wall.
+- **The idea on the table:** can't make the AES chip-button run our math, BUT we can **use AES-NI as a
+  fast ingredient INSIDE our cipher** (a respected technique). That makes a hybrid = part chaos, part
+  AES = literally **Option B** with a speed bonus.
+- **Already answered (2026-06-06):** *Does blending AES in weaken us?* → **No, if combined correctly** —
+  you stay **≥ as strong as AES** (it's a safety floor). Danger is only in the "glue": (1) never share a
+  key between layers (use independent/domain-separated keys — we already do), (2) use a proven combining
+  construction, don't invent the stitching, (3) keep layers independent (no leakage). Real caveat = more
+  code → more bug surface (a software risk, not a math one); covered by our test-it ethos.
+- **▶️ NEXT ACTIONS when user returns:** (a) sketch on paper (NO code yet) what a fast "chaos + AES-button"
+  blended design looks like — where chaos sits, where the fast AES stirring happens, how keys are split;
+  (b) this naturally merges with the PARKED AsturAI Option-B bridge below. Decide scope first: real
+  build vs curiosity.
+
+**Phase (2026-06-06): strengthen the cipher's security** (DONE — all 3 below), then deploy as the *outer*
+layer over a vetted primitive ("Option B" / defense-in-depth) to protect AsturAI client data — never the
+only lock. Each hardening idea must be *measured/attacked*, not asserted (project ethos). Three-step plan
+agreed with user (Suggestion 1 → 2 → 3):
 - [x] **Suggestion 1 — clever-burglar cryptanalysis** (`attacks/core_cryptanalysis.py`, REPORT v6). DONE & merged to main.
       Bias hunt = clean (2.52 σ), independence = confirmed (1.71 σ), MITM = honest correction 2^159→~2^122.
 - [x] **Suggestion 2 — nonce-misuse resistance** ("the seatbelt", `siv.py`, REPORT v7). DONE, pre-merge on `nonce-misuse-siv`.
