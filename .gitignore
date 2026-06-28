@@ -30,3 +30,6 @@ graphify-out/
 
 # Legal / IP documents — contain personal data (N.I.E. etc.); keep OFF GitHub
 docs/
+
+# Rust build artifacts (large, regenerable via `cargo build`)
+rust/target/

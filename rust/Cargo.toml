@@ -1,0 +1,25 @@
+[package]
+name = "chaos_core"
+version = "0.1.0"
+edition = "2021"
+description = "Rust hot-loop port of the chaos PWLCM keystream core (Phase 4). Bit-identical to the Python reference, validated against kat/vectors.json."
+
+[[bin]]
+name = "chaos_core"
+path = "src/main.rs"
+
+[lib]
+name = "chaos_core"
+path = "src/lib.rs"
+
+# Stage A uses a vetted big-int crate for the 256-bit step division so we can nail correctness
+# (bit-identical to the KAT) and measure the speedup first. Stage B replaces the division in the
+# hot path with a hand-rolled constant-time precomputed reciprocal (§4) and drops this from the
+# hot loop. Keeping it as a dependency is fine for a research core.
+[dependencies]
+ruint = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
