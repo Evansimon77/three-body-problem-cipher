@@ -83,9 +83,13 @@ it. That possibility is the entire reason for the outer-wall deployment and Phas
   0.41% timing spread across secret keys. See [CONSTANT_TIME.md](CONSTANT_TIME.md). (Note: the Python
   reference still divides — the constant-time guarantee lives in the Rust core, which is the build a
   real deployment would ship.)
-- **Key zeroization** — Python can't reliably wipe an old key from memory; the Rust core
-  (`zeroize`) will close this. Still pending — the ratchet/key-chain isn't ported to Rust yet, so
-  there's no burned key in the Rust core to wipe today. The construction is right; the *guarantee*
-  waits on porting the ratchet.
+- **Key zeroization** — CLOSED in the Rust core. The ratchet is ported (`RatchetEngine`, bit-identical
+  to `ratchet.py` against the frozen KAT across re-key seams), and each retired chain key K_i is now
+  overwritten with zeros in place (`zeroize`) the moment the chain steps past it — plus the stored live
+  key is wiped on drop and each epoch key (MK_i) is wiped once the engine has absorbed it. This is the
+  guarantee Python could only intend (immutable, GC'd `bytes`). *Honest residual:* transient stack
+  copies of the **next** chain key (the one we keep anyway) and key-schedule buffers inside the vetted
+  `hmac`/`sha2` crates are not scrubbed — eliminating those needs upstream zeroize support + stack
+  hygiene, out of scope for a research core. The security-critical burn (the **retired** key) is done.
 - **No external review yet** — the single largest risk. Self-attack found and fixed real bugs
   (a short-cycle weak-key class), which is encouraging, but it is not independent scrutiny.

@@ -22,6 +22,12 @@ ruint = "1"
 # the KDF is the security ceiling, so it uses a standard reviewed implementation, mirroring Python's
 # hashlib.sha512. Only the bespoke chaos math is hand-written; the primitive underneath is not.
 sha2 = "0.10"
+# Vetted HMAC-SHA256 for the ratchet's one-way key chain (forward secrecy). Same reasoning as sha2:
+# the re-keying KDF is security-critical, so it rides a standard reviewed primitive, not hand-rolled.
+hmac = "0.12"
+# Wipes the retired chain key from memory on each re-key and on drop — the forward-secrecy guarantee
+# Python could only promise (immutable, GC'd bytes). Closes the one gap ratchet.py flagged for the port.
+zeroize = "1"
 
 [profile.release]
 opt-level = 3

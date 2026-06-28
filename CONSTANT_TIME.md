@@ -94,8 +94,8 @@ Supporting constant-time requirements for the port:
 - **Mask-select, not branch.** Keep the four-candidate + 0/1-mask structure from the Python
   reference; do not "optimize" it back into a branch.
 - **Mask-select, not branch.** Constant-time selects/compares; never a plain `if` on secret data.
-- **`zeroize` old keys.** Wipe the burned ratchet chain key in place (the Python reference can
-  only drop the reference, not guarantee the wipe).
+- **`zeroize` old keys.** DONE — the ported `RatchetEngine` overwrites each retired chain key in
+  place (and the live key on drop) instead of just dropping the reference like Python.
 
 ### Deviations from the original plan (honest notes)
 
@@ -109,8 +109,11 @@ Supporting constant-time requirements for the port:
   constant-time property; one fewer dependency. `ruint`'s variable-time `/` and `%` survive ONLY
   off the hot path (reciprocal precompute + the once-per-key init avalanche), where a single
   variable-time op per key is the accepted norm (cf. OpenSSL/GMP reciprocal setup).
-- **`zeroize` is still pending** — the ratchet/key-chain isn't ported to Rust yet (Phase 4 later
-  item), so there's no burned key to wipe in the Rust core today.
+- **`zeroize` is now done, with an honest residual.** The ratchet is ported and the retired chain
+  key is wiped in place each re-key (and on drop). What is *not* scrubbed: transient stack copies of
+  the next chain key (the one we keep anyway) and the internal key schedules inside the vetted
+  `hmac`/`sha2` crates — those need upstream zeroize support, out of scope for the research core. The
+  security-relevant burn — the key the ratchet has moved past — is guaranteed.
 
 ---
 

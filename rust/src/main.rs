@@ -8,7 +8,7 @@
 
 use std::time::Instant;
 
-use chaos_core::{ChaosEngine, MultiMapEngine};
+use chaos_core::{ChaosEngine, MultiMapEngine, RatchetEngine, DEFAULT_N_MAPS};
 
 /// Parse a hex byte string (e.g. the KAT key/nonce material) into raw bytes.
 fn parse_hex_bytes(s: &str) -> Vec<u8> {
@@ -65,6 +65,16 @@ fn main() {
             let n_maps: usize = args[4].parse().expect("bad n_maps");
             let n: usize = args[5].parse().expect("bad length");
             let ks = MultiMapEngine::new(&key, &nonce, n_maps).keystream(n);
+            println!("{}", hex_of(&ks));
+        }
+        "ratchet" => {
+            // chaos_core ratchet <key_hex> <nonce_hex> <epoch_bytes> <n>  -> forward-secret keystream
+            // n_maps is the locked default (4); epoch_bytes sets the re-key boundary (must match peer).
+            let key = parse_hex_bytes(&args[2]);
+            let nonce = parse_hex_bytes(&args[3]);
+            let epoch_bytes: usize = args[4].parse().expect("bad epoch_bytes");
+            let n: usize = args[5].parse().expect("bad length");
+            let ks = RatchetEngine::new(&key, &nonce, epoch_bytes, DEFAULT_N_MAPS).keystream(n);
             println!("{}", hex_of(&ks));
         }
         "bench" => {
@@ -147,6 +157,7 @@ fn main() {
             eprintln!("usage: chaos_core ks <seed> <control> <nonce> <n>");
             eprintln!("       chaos_core from_master <key_hex> <nonce_hex> <n>");
             eprintln!("       chaos_core multimap <key_hex> <nonce_hex> <n_maps> <n>");
+            eprintln!("       chaos_core ratchet <key_hex> <nonce_hex> <epoch_bytes> <n>");
             eprintln!("       chaos_core bench <mbytes>");
             eprintln!("       chaos_core timing <keys>");
             std::process::exit(2);

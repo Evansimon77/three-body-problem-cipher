@@ -77,3 +77,13 @@ def test_rust_matches_kat_multimap(case):
     assert got == case["keystream"], (
         f"Rust multimap (n_maps={case['n_maps']}) diverged from the frozen KAT."
     )
+
+
+def test_rust_matches_kat_ratchet():
+    """The forward-secret stream: a one-way HMAC-SHA256 key chain re-keying every `epoch_bytes`.
+    The KAT length spans several epochs (80 bytes over 32-byte epochs), so this exercises >=2 re-key
+    seams — if the chain step or the epoch nonce diverged by a byte, the keystream would break here."""
+    case = _frozen("ratchet")
+    n = case["length"]
+    got = _rust("ratchet", case["key"], case["nonce"], case["epoch_bytes"], n)
+    assert got == case["keystream"], "Rust ratchet diverged from the frozen KAT (chain or epoch seam)."

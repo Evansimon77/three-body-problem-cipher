@@ -29,8 +29,10 @@
 //!   here is < 2^126 (p, HALF-p both <= HALF-MIN_P), so delta < 2^126/2^127 = 1/2, hence q_approx is
 //!   q-1 or q, never less and never more. The frozen KAT guarantees this stays bit-identical to Python.
 
+use hmac::{Hmac, Mac};
 use ruint::aliases::U256;
-use sha2::{Digest, Sha512};
+use sha2::{Digest, Sha256, Sha512};
+use zeroize::{Zeroize, Zeroizing};
 
 // ---- grid constants (mirror engine.py exactly) ----
 pub const M: u128 = (1u128 << 127) - 1; // Mersenne prime M127
@@ -44,6 +46,9 @@ const F_MUL1: u64 = 0xBF58_476D_1CE4_E5B9;
 const F_MUL2: u64 = 0x94D0_49BB_1331_11EB;
 
 pub const OUTPUT_BYTES_PER_STEP: usize = 4;
+
+/// Default independent maps per epoch — mirrors multimap.py `DEFAULT_N_MAPS` (decision #2, 4 maps).
+pub const DEFAULT_N_MAPS: usize = 4;
 
 /// Scale of the precomputed reciprocal: V = floor(M * 2^RECIP_SHIFT / d). 127 gives a truncation
 /// error < 1/2 for every divisor in this map (all < 2^126), so a SINGLE branchless correction is exact.
@@ -313,6 +318,112 @@ impl MultiMapEngine {
             b ^= eng.next_byte();
         }
         b
+    }
+
+    pub fn keystream(&mut self, n: usize) -> Vec<u8> {
+        (0..n).map(|_| self.next_byte()).collect()
+    }
+}
+
+// ---- the ratchet: forward-secret, unbounded keystream (mirror of ratchet.py) ----
+
+/// Domain-separation tag for the ratchet's key chain (must match ratchet.py `_V` byte-for-byte).
+const RATCHET_V: &[u8] = b"chaos-ratchet-v1|";
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// One-way key-derivation step: HMAC-SHA256(key, label) -> 32 bytes. Used for BOTH the chain key
+/// and each epoch key, exactly like ratchet.py `_kdf`. HMAC accepts any key length, so `expect`
+/// never fires.
+fn hmac_sha256(key: &[u8], label: &[u8]) -> [u8; 32] {
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(label);
+    mac.finalize().into_bytes().into()
+}
+
+/// Concatenate byte slices into a fresh `Vec` (label building only — never the per-byte hot loop).
+fn cat(parts: &[&[u8]]) -> Vec<u8> {
+    let mut v = Vec::new();
+    for p in parts {
+        v.extend_from_slice(p);
+    }
+    v
+}
+
+/// Auto-rekey ("A"): a one-way key chain that re-keys every `epoch_bytes` and burns the old key,
+/// giving forward secrecy and an effectively unbounded stream. Drop-in for `MultiMapEngine`.
+/// Bit-identical to ratchet.py — the chain, the epoch nonce (`nonce + "|ep|" + idx`), and the
+/// 8-byte big-endian epoch index all mirror the Python construction.
+pub struct RatchetEngine {
+    nonce: Vec<u8>,
+    epoch_bytes: usize,
+    n_maps: usize,
+    // K_{i+1}: the NEXT chain key (K_i is already burned). `Zeroizing` wipes it on drop, so the
+    // final live key never lingers in freed memory.
+    chain_key: Zeroizing<[u8; 32]>,
+    epoch_index: u64, // the NEXT epoch to derive (current epoch is engine's)
+    engine: MultiMapEngine,
+    remaining: usize, // keystream bytes left before the next re-key
+}
+
+impl RatchetEngine {
+    pub fn new(master_key: &[u8], nonce: &[u8], epoch_bytes: usize, n_maps: usize) -> Self {
+        assert!(epoch_bytes >= 1, "epoch_bytes must be >= 1");
+        // K_0 — derived from the master key, so the raw secret never seeds a map directly.
+        let mut k0 = hmac_sha256(master_key, &cat(&[RATCHET_V, b"init|", nonce]));
+        // Build epoch 0 inline (mirrors the `_advance()` the Python __init__ calls on entry).
+        let (engine, next_chain) = Self::derive_epoch(&k0, nonce, n_maps, 0);
+        k0.zeroize(); // burn K_0 — it has done its one job (deriving epoch 0 + K_1)
+        RatchetEngine {
+            nonce: nonce.to_vec(),
+            epoch_bytes,
+            n_maps,
+            chain_key: Zeroizing::new(next_chain),
+            epoch_index: 1,
+            engine,
+            remaining: epoch_bytes,
+        }
+    }
+
+    /// Derive epoch `i`'s keystream engine + the next chain key from the current chain key.
+    /// MK_i = HMAC(chain, V|"epoch|"|idx); K_{i+1} = HMAC(chain, V|"chain|"|idx); the epoch's engine
+    /// seeds from MK_i with nonce = original_nonce|"|ep|"|idx. `idx` is the 8-byte big-endian index.
+    /// MK_i is wiped here once the engine has absorbed it — the live secret is the engine state now.
+    fn derive_epoch(
+        chain_key: &[u8; 32],
+        nonce: &[u8],
+        n_maps: usize,
+        epoch_index: u64,
+    ) -> (MultiMapEngine, [u8; 32]) {
+        let idx = epoch_index.to_be_bytes();
+        let mut epoch_key = hmac_sha256(chain_key, &cat(&[RATCHET_V, b"epoch|", &idx]));
+        let next_chain = hmac_sha256(chain_key, &cat(&[RATCHET_V, b"chain|", &idx]));
+        let epoch_nonce = cat(&[nonce, b"|ep|", &idx]);
+        let engine = MultiMapEngine::new(&epoch_key, &epoch_nonce, n_maps);
+        epoch_key.zeroize(); // MK_i consumed into the engine seeds; wipe the key copy
+        (engine, next_chain)
+    }
+
+    /// Step the chain into the next epoch: derive a fresh engine + chain key, then BURN K_i in place
+    /// (overwrite with zeros, not just drop the reference like Python could) before storing K_{i+1}.
+    fn advance(&mut self) {
+        let (engine, mut next_chain) =
+            Self::derive_epoch(&self.chain_key, &self.nonce, self.n_maps, self.epoch_index);
+        self.engine = engine;
+        self.chain_key.zeroize(); // wipe K_i in place
+        self.chain_key.copy_from_slice(&next_chain); // store K_{i+1}
+        next_chain.zeroize(); // drop the transient copy too
+        self.epoch_index += 1;
+        self.remaining = self.epoch_bytes;
+    }
+
+    #[inline]
+    pub fn next_byte(&mut self) -> u8 {
+        if self.remaining == 0 {
+            self.advance();
+        }
+        self.remaining -= 1;
+        self.engine.next_byte()
     }
 
     pub fn keystream(&mut self, n: usize) -> Vec<u8> {
