@@ -2,7 +2,8 @@
 pytest>=8.0
 
 # Baseline ciphers for the speed benchmark (AES-256-CTR, ChaCha20)
-cryptography>=42.0
+# >=48.0.1 avoids GHSA-537c-gmf6-5ccf (benchmark-only; never used by the cipher itself)
+cryptography>=48.0.1
 
 # numpy is NOT required — the engine is pure-integer stdlib.
 # Optional external randomness batteries (install via Homebrew, not pip):

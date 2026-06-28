@@ -136,11 +136,11 @@ def part3_no_seam(epoch_bytes=128, n_epochs=4000):
 
 def part4_period_dissolution(epoch_bytes=1 << 16):
     print("PART 4 — period dissolution (analytic):")
-    print(f"  each epoch is a FRESH MultiMapEngine: its own ~2^62 per-map orbit, combined ~2^252.")
+    print("  each epoch is a FRESH MultiMapEngine: its own ~2^62 per-map orbit, combined ~2^252.")
     print(f"  default epoch = {epoch_bytes:,} bytes = ~2^{epoch_bytes.bit_length()-1} bytes — re-keyed")
-    print(f"  ~2^46 times BELOW a single orbit, so no epoch ever nears its period. Usable stream")
-    print(f"  length is bounded only by the epoch counter (8 bytes => 2^64 epochs) — effectively\n"
-          f"  unbounded. The per-epoch period limit is dissolved.\n")
+    print("  ~2^46 times BELOW a single orbit, so no epoch ever nears its period. Usable stream")
+    print("  length is bounded only by the epoch counter (8 bytes => 2^64 epochs) — effectively\n"
+          "  unbounded. The per-epoch period limit is dissolved.\n")
 
 
 if __name__ == "__main__":

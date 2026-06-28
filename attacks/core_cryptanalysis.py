@@ -127,7 +127,7 @@ def bias_hunt(n_bytes: int = 300_000):
     print(f"  linear-mask parity ({len(masks)} masks)  worst = {worst_mask[1]:+.2f} sigma")
 
     overall = max(abs(worst_bit[1]), abs(chi_sigma), abs(worst_lag[1]), abs(worst_mask[1]))
-    print(f"  ----")
+    print("  ----")
     print(f"  strongest deviation anywhere: {overall:.2f} sigma over "
           f"~{8 + 1 + 8 + len(masks)} tests")
     verdict = ("looks RANDOM (no exploitable bias found at this scale)"
@@ -294,7 +294,7 @@ def mitm_demo():
     half = (n + 1) // 2
     print(f"  For the SHIPPED design (N={n} maps, {sb}-bit state): MITM ~2^{half*sb} (and 2^{half*sb}")
     print(f"  memory, itself prohibitive), naive joint ~2^{n*sb}. Both astronomically safe; 2^{half*sb}")
-    print(f"  is the honest worst-case attacker cost, superseding the old 3-map figure of 2^122.\n")
+    print("  is the honest worst-case attacker cost, superseding the old 3-map figure of 2^122.\n")
 
 
 if __name__ == "__main__":

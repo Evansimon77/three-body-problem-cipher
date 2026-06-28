@@ -27,7 +27,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from engine import M, _finalize, OUTPUT_BYTES_PER_STEP  # noqa: E402
+from engine import _finalize, OUTPUT_BYTES_PER_STEP  # noqa: E402
 from multimap import MultiMapEngine, DEFAULT_N_MAPS      # noqa: E402
 from known_plaintext import SmallPWLCM, recover_state    # noqa: E402
 
@@ -145,9 +145,9 @@ def part3_no_shortcut(m_bits=16):
     print(f"  M=2^{m_bits}: full-state recovery works at tiny scale = {ok}  "
           f"(searched {tested:,} states, {dt:.2f}s)")
     print(f"  anchored search the OLD output allowed = ~2^{m_bits-8} = {anchored:,} states")
-    print(f"  => the filter turns a 2^(n-8) anchored search into a full 2^n search "
-          f"(+8 bits of work), and Part 1 shows there is no window/affine shortcut left.")
-    print(f"     Real engine: 2^(state_bits) per map, XOR'd over the map count — no cheap path.\n")
+    print("  => the filter turns a 2^(n-8) anchored search into a full 2^n search "
+          "(+8 bits of work), and Part 1 shows there is no window/affine shortcut left.")
+    print("     Real engine: 2^(state_bits) per map, XOR'd over the map count — no cheap path.\n")
     return ok  # 'ok' just confirms our model is sound (small scale is always brute-forceable)
 
 

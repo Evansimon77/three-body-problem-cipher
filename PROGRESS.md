@@ -161,6 +161,18 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 
 ## Recent Work
 
+### ✅ DONE 2026-06-28: Housekeeping — /check tooling installed + project made clean
+> Branch `branchless-core`. Not a roadmap item — a health pass before resuming Phase 2.
+> Installed the three `/check` tools (ruff, pytest-cov, pip-audit). Results, all addressed:
+> **(1) Analyzer** — was 31 cosmetic flags (stray `f` prefixes, 3 dead variables, 10 deliberate
+> compact `;` lines). Auto-fixed the f-strings, deleted the 3 dead vars (`se_bit`, `alice`, `bs` —
+> none hid a bug), added `ruff.toml` ignoring E702 to document the intentional compact-line style.
+> Analyzer now **PASS**. **(2) Dependencies** — bumped `cryptography` 48.0.0 → 49.0.0 (clears
+> GHSA-537c-gmf6-5ccf; benchmark-only dep, never touches the cipher). Chaos-cipher's own deps now
+> clean; the 10 remaining pip-audit hits belong to OTHER projects in the shared Python, not this one.
+> **(3) Coverage** — still skipped (code is loose scripts, no installable package); deferred, low value.
+> No cipher logic touched. 81/81 tests still pass.
+
 ### ✅ DONE 2026-06-28: Phase 2 — new period census on the 2^127 grid + TMTO/state-size check
 > Branch `branchless-core`. Third Phase-2 item. Re-ran `attacks/period_census.py` on the finalized
 > 2^127 / 4-map design (relabeled the stale 2^61 / 3-map prints) and added a new TMTO part.

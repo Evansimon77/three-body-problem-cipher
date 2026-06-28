@@ -128,7 +128,6 @@ def part2_differentials(n=20000, seed=2):
     deltas = [(1 << i) for i in range(STATE_BITS)]
     worst_bit_sigma = 0.0
     worst_pop_sigma = 0.0
-    se_bit = 0.5 / math.sqrt(n)
     # popcount of a 64-bit uniform diff ~ Normal(mean=32, var=16) => sd=4
     pop_mean, pop_sd = OUT_BITS / 2, math.sqrt(OUT_BITS) / 2
     for d_in in deltas:
@@ -256,7 +255,7 @@ def part4_recovery_cost():
               f"  (2^(w/2) = {1<<half})   max = {max(vals)}")
     # law holds if avg preimages tracks 2^(w/2)
     ok = all(abs(math.log2(avg) - half) < 1.0 for (_, half, avg, _) in rows)
-    print(f"  => law confirmed: ~2^(w/2) preimages. At full width that is 2^32 candidate finalize-inputs")
+    print("  => law confirmed: ~2^(w/2) preimages. At full width that is 2^32 candidate finalize-inputs")
     print(f"     per emitted step, PER map; XOR over { '4'} maps compounds it. No cheap inversion.\n")
     return ok
 

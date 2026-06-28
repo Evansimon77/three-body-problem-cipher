@@ -1,0 +1,6 @@
+# Lint config for chaos-cipher.
+# E702 (multiple statements on one line via ';') is intentional in the attack/demo
+# scripts: compact two-statement setup lines like `x = Foo(); x.state = seed` keep
+# each adversarial scenario readable on one line. It is a style choice, not a defect.
+[lint]
+ignore = ["E702"]

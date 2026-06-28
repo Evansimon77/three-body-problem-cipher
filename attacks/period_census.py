@@ -254,7 +254,7 @@ def run_hunt(n_keys: int = 300, budget: int = 60_000):
     _p("=" * 86)
     _p(f"PART B — TRAP HUNT on the REAL grid M = 2^127-1, {n_keys:,} production-seeded keys")
     _p("=" * 86)
-    _p(f"Each key is seeded EXACTLY like the real cipher (SHA-512 KDF, weak-band rejected,")
+    _p("Each key is seeded EXACTLY like the real cipher (SHA-512 KDF, weak-band rejected,")
     _p(f"16-step warm-up). Budget = {budget:,} steps. A cycle found within budget = a TRAP")
     _p(f"(period < {budget:,} << any real message). Expected good result: ZERO traps.\n")
 
@@ -286,7 +286,7 @@ def run_hunt(n_keys: int = 300, budget: int = 60_000):
             _p(f"    key={mk[:16]}... nonce={nc[:12]}... period={lam:,}")
     else:
         _p(f"  -> No production key fell into a cycle shorter than {budget:,} steps.")
-        _p(f"     Every orbit's period exceeds the budget (good — no reachable repeat).")
+        _p("     Every orbit's period exceeds the budget (good — no reachable repeat).")
     _p("")
     return len(traps)
 
@@ -413,11 +413,11 @@ def run_scaling():
            f"k<={max(ks)} — a trend, not a measurement; 2^{extrap:.0f} is too large to census directly.)")
         _p("")
         _p(f"  MEANING: a single sub-map's keystream period is ~2^{extrap:.0f}, NOT ~2^{K} (the whole")
-        _p(f"  grid). The honest number to publish is sqrt(M), not M. The bigger grid (#1) lifted this")
+        _p("  grid). The honest number to publish is sqrt(M), not M. The bigger grid (#1) lifted this")
         _p(f"  from ~2^30 (at the old 2^61 grid) to ~2^{extrap:.0f} here. The {n_maps}-map XOR keystream")
         _p(f"  repeats only at lcm of the {n_maps} orbits (~2^{lcm_n:.0f}, ample); CTR mode (ctr.py) avoids")
-        _p(f"  orbit length entirely (each block is a fresh short orbit); auto-rekey (A) dissolves it"
-           f" further (a fresh orbit every 64 KiB).\n")
+        _p("  orbit length entirely (each block is a fresh short orbit); auto-rekey (A) dissolves it"
+           " further (a fresh orbit every 64 KiB).\n")
 
 
 # ======================================================================================
@@ -470,13 +470,13 @@ def run_tmto():
     _p("")
     _p("VERDICT (honest, two-sided):")
     _p(f"  * Realistically (p is secret) the hidden secret is ~{full_secret} bits => TMTO ~2^{tmto_full},")
-    _p(f"    clearing the 512-bit rule with room to spare.")
+    _p("    clearing the 512-bit rule with room to spare.")
     _p(f"  * Even in the artificial p-known worst case, TMTO is 2^{tmto_state} — physically unreachable,")
     _p(f"    though it lands {target - tmto_state} bits below a strict {target}-bit claim. So the honest")
     _p(f"    bit-security to PUBLISH is ~{tmto_state} bits (matching the MITM in core_cryptanalysis),")
     _p(f"    not a round {target}. If a clean >={target}-bit margin is ever required, N=5 maps lifts the")
     _p(f"    worst case to 2^{(per_map*5)//2}.")
-    _p(f"  * And auto-rekey starves the DATA either way. State size is not the weak link.")
+    _p("  * And auto-rekey starves the DATA either way. State size is not the weak link.")
     _p("  HONEST CAVEAT: this is the GENERIC TMTO bound; it does not rule out a structure-specific")
     _p("  attack that recovers the state with less data (PWLCM has affine structure). Still UNVETTED.\n")
     return full_ok

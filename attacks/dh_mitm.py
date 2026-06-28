@@ -91,7 +91,7 @@ def demo_fingerprint_catches_it():
     print("\n" + "=" * 70)
     print("PART C — the fix: a VERIFIED fingerprint detects the impostor")
     print("=" * 70)
-    alice, bob = DHParty(), DHParty()
+    bob = DHParty()
     mallory = DHParty()
     # If Alice has Bob's REAL fingerprint (verified out-of-band: in person, prior contact),
     # she compares it against the key she actually received.

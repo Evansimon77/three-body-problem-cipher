@@ -87,7 +87,6 @@ def test_nonce_and_key_separation():
 def test_blocks_are_independent():
     """Distinct counter blocks are domain-separated => unrelated keystreams."""
     c = SeekableCTR(KEY, NONCE)
-    bs = SeekableCTR.BLOCK_SIZE
     assert c._block_keystream(0) != c._block_keystream(1)
     assert c._block_keystream(0) != c._block_keystream(1_000_000)
 
