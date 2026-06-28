@@ -45,7 +45,7 @@ or XChaCha20-Poly1305), so if the chaos wall ever cracks the data is still fully
 | **Past-message recovery after a key leak** | Forward secrecy: the ratchet advances a one-way HMAC chain and burns the old key, so a live capture can't decrypt earlier epochs. | `ratchet.py` |
 | **Period repetition** | Each 64 KiB epoch is a fresh ~2^247 orbit; re-keying dissolves the period limit, so usable length is effectively unbounded. | `ratchet.py` |
 | **Man-in-the-middle on key agreement** | Triple-DH (static + ephemeral) authenticated exchange; a MITM lacking a party's static private key cannot derive the session key. | `auth_keyexchange.py` |
-| **Timing side channel** | The secret-dependent *branch* is removed (measured: 1.0% spread across regions). The secret-dependent *divide* remains and is deferred to the Rust port. | [CONSTANT_TIME.md](CONSTANT_TIME.md) |
+| **Timing side channel** | Both channels closed: the secret-dependent *branch* (mask-select, 1.0% spread) and the secret-dependent *divide* (Rust precomputed-reciprocal multiply-shift — measured 0.41% spread across 128 secret keys, no hardware divide on the secret in the hot loop). | [CONSTANT_TIME.md](CONSTANT_TIME.md), `rust/src/lib.rs` |
 
 ---
 
@@ -78,9 +78,14 @@ it. That possibility is the entire reason for the outer-wall deployment and Phas
 
 ## 4. Residual risks we are carrying forward
 
-- **The divide-by-secret timing leak (#2)** — open, scheduled for the Rust port. See
-  [CONSTANT_TIME.md](CONSTANT_TIME.md).
+- **The divide-by-secret timing leak (#2)** — **CLOSED** in the Rust core (Phase 4 Stage B):
+  precomputed-reciprocal multiply-shift, no hardware divide on the secret in the hot loop, measured
+  0.41% timing spread across secret keys. See [CONSTANT_TIME.md](CONSTANT_TIME.md). (Note: the Python
+  reference still divides — the constant-time guarantee lives in the Rust core, which is the build a
+  real deployment would ship.)
 - **Key zeroization** — Python can't reliably wipe an old key from memory; the Rust core
-  (`zeroize`) closes this. The construction is right; the *guarantee* waits on the port.
+  (`zeroize`) will close this. Still pending — the ratchet/key-chain isn't ported to Rust yet, so
+  there's no burned key in the Rust core to wipe today. The construction is right; the *guarantee*
+  waits on porting the ratchet.
 - **No external review yet** — the single largest risk. Self-attack found and fixed real bugs
   (a short-cycle weak-key class), which is encouraging, but it is not independent scrutiny.
