@@ -1,6 +1,6 @@
 # Chaos Cipher (Progress)
 
-Last updated: 2026-06-28 | Branch: branchless-core | Status: 🛠️ **MAX-SECURITY REBUILD IN PROGRESS** — no-compromise path. **Phase 0 done** (branchless constant-time map). **Phase 1 #3/#4 done** (frosted-glass nonlinear output + multi-byte). **Phase 1 #1 done TODAY** (bigger grid 2^61→2^127): per-map period lifted ~2^30 → ~2^62 (√M law, measured exponent 0.489). The edge census CAUGHT a real bug #1 introduced — a degenerate all-zero key fell into a 6-step short cycle because nonce=0 collapsed the init mixing to `x=key+1` (a tiny start state that resonates with the map). FIXED by an unconditional avalanche in the init so any key→strong x0; re-verified 0/7 short cycles, 72/72 tests, all 4 filter attacks pass, bias clean. **Phase 1 #2 done TODAY** (map count 3→**4**): chose 4 after measuring — sub-maps proven independent (worst pairwise corr 0.008), combined output clean at N=3/4/5, cost ~linear (4 = 1.3× the 3-map time), work-factor at N=4 ~2^252 period / ~2^508 joint state. Stopped at 4 not 5+ because all maps share the master key, so key/KDF — not map count — is the real ceiling. New validation: `attacks/map_count_attack.py`. **Phase 1 remaining: A (auto-rekey ratchet) — last item before Phase 2.** See "🗺️ MASTER ROADMAP".
+Last updated: 2026-06-28 | Branch: branchless-core | Status: 🛠️ **MAX-SECURITY REBUILD IN PROGRESS** — no-compromise path. **Phase 0 done** (branchless constant-time map). **Phase 1 #3/#4 done** (frosted-glass nonlinear output + multi-byte). **Phase 1 #1 done TODAY** (bigger grid 2^61→2^127): per-map period lifted ~2^30 → ~2^62 (√M law, measured exponent 0.489). The edge census CAUGHT a real bug #1 introduced — a degenerate all-zero key fell into a 6-step short cycle because nonce=0 collapsed the init mixing to `x=key+1` (a tiny start state that resonates with the map). FIXED by an unconditional avalanche in the init so any key→strong x0; re-verified 0/7 short cycles, 72/72 tests, all 4 filter attacks pass, bias clean. **Phase 1 #2 done TODAY** (map count 3→**4**): chose 4 after measuring — sub-maps proven independent (worst pairwise corr 0.008), combined output clean at N=3/4/5, cost ~linear (4 = 1.3× the 3-map time), work-factor at N=4 ~2^252 period / ~2^508 joint state. Stopped at 4 not 5+ because all maps share the master key, so key/KDF — not map count — is the real ceiling. New validation: `attacks/map_count_attack.py`. **Phase 1 A (auto-rekey ratchet) done TODAY** — new `ratchet.py`: one-way HMAC-SHA256 key chain re-keys every 64 KiB and burns the old key. Gives **forward secrecy** (a key leak can't decrypt past epochs — demonstrated) + **dissolves the period limit** (each epoch is a fresh ~2^252 orbit; usable length effectively unbounded). Validated `attacks/ratchet_attack.py` (forward secrecy PASS, epochs independent, no re-key seam — after fixing a too-strict seam test that cried wolf on sampling noise). 81/81 tests. **🎉 PHASE 1 COMPLETE. Next: Phase 2 — attack the whole new design HARD.** See "🗺️ MASTER ROADMAP".
 
 ---
 Prior status: 🔬 **v9 PERIOD CENSUS DONE** — answered the veteran's make-or-break question (§2). Honest finding: the map is a **random function**, so period ≈ **√M ≈ 2³⁰, NOT 2⁶¹** (rho/birthday law, measured exponent 0.489). **No traps:** 1,000/1,000 production keys + 7 adversarial edges show no short cycle; fixed-point capture ~1e-9 and even then mutes only 1 of the 3 XOR'd maps. Mitigated by the 3-map combiner (lcm ~2⁹⁰) + CTR mode + a per-key data limit. REPORT **v9**; `test_period.py` upgraded to a **1,000-marble guard**. **72/72 tests pass.** (Prior: all 3 hardening suggestions done & merged to main `cdc598c`.) Resume point: 🔖 **SPEED / Rust rewrite** — architecture DECIDED (chaos outer wall + AES inner vault; make the chaos engine itself fast, don't blend AES in); user leaning **Rust** for a fast constant-time core; mid-discussion on the "expert questions" checklist (§2 period = DONE; §4 constant-time + §3 KAT set = pre-port must-dos). See "🔖 RESUME HERE" in NEXT. End-goal unchanged: deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data — never the only lock.
@@ -36,8 +36,11 @@ let strangers attack it.** Never speed up or ship a design that isn't finalized 
   - [x] **#2 Final map count** (3 → **4**) — picked and locked DONE 2026-06-28. Measured: maps
         independent (corr 0.008), no new bias, ~linear cost; 4 = one redundant wall + margin over
         256-bit; 5+ rejected (shared-key ceiling). Validation: `attacks/map_count_attack.py`.
-  - [ ] **A. Auto-rekey ratchet** — self-changing lock, burns old keys (forward secrecy + dissolves
-        the period limit). ◀ NEXT (last Phase-1 item)
+  - [x] **A. Auto-rekey ratchet** — DONE 2026-06-28 (`ratchet.py`). One-way HMAC key chain, re-keys
+        every 64 KiB, burns old key. Forward secrecy + unbounded length, both measured. Validation:
+        `attacks/ratchet_attack.py`. (AEAD wiring is deferred to Phase 5 by design.)
+  - **✅ PHASE 1 COMPLETE (2026-06-28).** Core design finalized: branchless map, frosted-glass output,
+    multi-byte, 2^127 grid, 4 maps, auto-rekey. ▶ Next: **Phase 2 — attack the whole design hard.**
 - [ ] **Phase 2 — Attack our own design HARD** (nothing proceeds unless it survives):
   - [ ] **D. New attack tooling** — correlation/differential hunt on the new output↔state (mandatory
         because #3 adds new math).
@@ -141,6 +144,25 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 - ⚠️ ~700–800× slower than AES/ChaCha. **Still UNVETTED** — not for real data.
 
 ## Recent Work
+
+### ✅ DONE 2026-06-28: Phase 1 (A) — auto-rekey ratchet (forward secrecy + unbounded length) → PHASE 1 COMPLETE
+> Branch `branchless-core`. New module `ratchet.py` (`RatchetEngine`, drop-in keystream source). A
+> one-way **HMAC-SHA256 key chain**: from chain key K_i derive this epoch's keystream key MK_i AND the
+> next chain key K_{i+1}, then DROP K_i. Re-keys every `epoch_bytes` (default **64 KiB**); each epoch is
+> a fresh independent `MultiMapEngine`. **Two payoffs, both measured** (`attacks/ratchet_attack.py`):
+> (1) **FORWARD SECRECY** — captured the live key at epoch C and showed: future reproduces exactly,
+> PAST does NOT leak, and capturing one epoch earlier WOULD read it (proving only the burned key
+> protected the past). (2) **PERIOD DISSOLVED** — each epoch is a fresh ~2^252 combined orbit, re-keyed
+> ~2^46× below any single orbit; usable length bounded only by a 2^64 epoch counter. Also: epochs are
+> independent (corr 0.036) and there is **no re-key seam** — the seam correlation sits at the noise
+> floor (z=1.5 vs baseline z=1.1). **Process note:** the seam test first cried "CHECK" — investigated
+> and found it was MY test's fault (a raw 0.05 cutoff on only 399 boundary samples ≈ 1 std-error of
+> noise); rewrote it to judge by z-score against the ordinary-correlation noise floor. Added
+> `tests/test_ratchet.py` (9 tests: cross-epoch round-trip, determinism, checkpoint/resume, etc).
+> **81/81 tests pass.** HONEST SCOPE: symmetric forward secrecy only — NOT future-secrecy after a live
+> capture (that needs the DH/PQ ratchet, item F, later) and NOT a proof of security. Key-burning is
+> best-effort in Python (immutable bytes); the Rust port will `zeroize`. Still UNVETTED. AEAD wiring
+> deferred to Phase 5 by design. **🎉 Phase 1 (core design) is DONE — next is Phase 2: break it.**
 
 ### ✅ DONE 2026-06-28: Phase 1 (#2) — map count locked at 4 (was 3), chosen by measurement
 > Branch `branchless-core`. Raised `DEFAULT_N_MAPS` 3 → **4** (the keystream is the XOR of N independent
