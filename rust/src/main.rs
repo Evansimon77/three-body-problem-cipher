@@ -77,6 +77,28 @@ fn main() {
             let ks = RatchetEngine::new(&key, &nonce, epoch_bytes, DEFAULT_N_MAPS).keystream(n);
             println!("{}", hex_of(&ks));
         }
+        "benchmm" => {
+            // chaos_core benchmm <n_maps> <mbytes>  -> throughput of the REAL shipped combiner.
+            let n_maps: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(DEFAULT_N_MAPS);
+            let mb: usize = args.get(3).map(|s| s.parse().unwrap()).unwrap_or(64);
+            let n = mb * 1024 * 1024;
+            let mut eng = MultiMapEngine::new(b"bench-master-key", b"bench-nonce", n_maps);
+            let _ = eng.keystream(1 << 16); // warm
+            let t0 = Instant::now();
+            let mut sink: u64 = 0;
+            let mut produced = 0usize;
+            while produced < n {
+                let chunk = eng.keystream(1 << 20);
+                for b in &chunk {
+                    sink ^= *b as u64;
+                }
+                produced += chunk.len();
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            let mbps = (produced as f64 / (1024.0 * 1024.0)) / dt;
+            eprintln!("checksum {sink}");
+            println!("{n_maps}-map: {mbps:.2} MB/s  ({mb} MB in {dt:.3}s)");
+        }
         "bench" => {
             let mb: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(64);
             let n = mb * 1024 * 1024;
@@ -159,6 +181,7 @@ fn main() {
             eprintln!("       chaos_core multimap <key_hex> <nonce_hex> <n_maps> <n>");
             eprintln!("       chaos_core ratchet <key_hex> <nonce_hex> <epoch_bytes> <n>");
             eprintln!("       chaos_core bench <mbytes>");
+            eprintln!("       chaos_core benchmm <n_maps> <mbytes>");
             eprintln!("       chaos_core timing <keys>");
             std::process::exit(2);
         }

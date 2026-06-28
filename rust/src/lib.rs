@@ -231,10 +231,22 @@ impl ChaosEngine {
         self.x = q.wrapping_mul(1 - dead).wrapping_add(DEAD_STATE_FIX.wrapping_mul(dead));
     }
 
+    /// Step once and return this step's OUTPUT_BYTES_PER_STEP keystream bytes (the top bytes of the
+    /// finalized state, big-endian) — the unit the multimap combiner XORs across maps. Bypasses the
+    /// per-engine byte buffer, so use EITHER next_byte OR next_block on a given engine, never both.
+    #[inline]
+    fn next_block(&mut self) -> [u8; OUTPUT_BYTES_PER_STEP] {
+        self.next_state();
+        let full = finalize(self.x).to_be_bytes(); // 8 bytes, big-endian
+        let mut out = [0u8; OUTPUT_BYTES_PER_STEP];
+        out.copy_from_slice(&full[..OUTPUT_BYTES_PER_STEP]); // top 4 bytes, like Python
+        out
+    }
+
     #[inline]
     fn refill(&mut self) {
-        self.next_state();
-        self.buf = finalize(self.x).to_be_bytes();
+        let block = self.next_block();
+        self.buf[..OUTPUT_BYTES_PER_STEP].copy_from_slice(&block);
         self.buf_len = OUTPUT_BYTES_PER_STEP; // emit the top 4 bytes (big-endian), like Python
         self.buf_i = 0;
     }
@@ -296,6 +308,8 @@ fn derive_seed_control(h: &[u8; 64]) -> (u128, u128) {
 /// Each sub-engine gets an unrelated (seed, control) from a domain-separated, index-folded KDF.
 pub struct MultiMapEngine {
     engines: Vec<ChaosEngine>,
+    buf: [u8; OUTPUT_BYTES_PER_STEP], // one combined block (XOR of every map's step block)
+    buf_i: usize,                     // == OUTPUT_BYTES_PER_STEP means empty
 }
 
 impl MultiMapEngine {
@@ -308,15 +322,38 @@ impl MultiMapEngine {
                 ChaosEngine::new(seed, control, 0)
             })
             .collect();
-        MultiMapEngine { engines }
+        MultiMapEngine {
+            engines,
+            buf: [0u8; OUTPUT_BYTES_PER_STEP],
+            buf_i: OUTPUT_BYTES_PER_STEP, // start empty -> first next_byte refills
+        }
+    }
+
+    /// Step EVERY map once and XOR their per-step blocks into one combined block. The maps are fully
+    /// independent, so their four dependency chains can overlap in the CPU's out-of-order window —
+    /// this batched form exposes that instruction-level parallelism, where the old code interleaved
+    /// the maps one byte at a time behind separate buffer-empty branches. Bit-identical: a combined
+    /// byte is still the XOR over maps of each map's step bytes, exactly as before (the KAT proves it).
+    #[inline]
+    fn refill(&mut self) {
+        let mut acc = [0u8; OUTPUT_BYTES_PER_STEP];
+        for eng in self.engines.iter_mut() {
+            let block = eng.next_block();
+            for j in 0..OUTPUT_BYTES_PER_STEP {
+                acc[j] ^= block[j];
+            }
+        }
+        self.buf = acc;
+        self.buf_i = 0;
     }
 
     #[inline]
     pub fn next_byte(&mut self) -> u8 {
-        let mut b = 0u8;
-        for eng in self.engines.iter_mut() {
-            b ^= eng.next_byte();
+        if self.buf_i >= OUTPUT_BYTES_PER_STEP {
+            self.refill();
         }
+        let b = self.buf[self.buf_i];
+        self.buf_i += 1;
         b
     }
 
