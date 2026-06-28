@@ -1,0 +1,103 @@
+{
+  "_meta": {
+    "about": "Frozen known-answer vectors for the chaos PWLCM cipher. See generate_kat.py.",
+    "modulus_M": "0x7fffffffffffffffffffffffffffffff"
+  },
+  "finalize": [
+    {
+      "z": "0x0",
+      "out": "0x0"
+    },
+    {
+      "z": "0x1",
+      "out": "0x5692161d100b05e5"
+    },
+    {
+      "z": "0x2",
+      "out": "0xdbd238973a2b148a"
+    },
+    {
+      "z": "0x7ffffffffffffffffffffffffffffffe",
+      "out": "0x22cb06b07578bbfe"
+    },
+    {
+      "z": "0x7fffffffffffffffffffffffffffffff",
+      "out": "0x25c26ea579cea98a"
+    },
+    {
+      "z": "0x3fffffffffffffffffffffffffffffff",
+      "out": "0x9216e87cef427fdb"
+    },
+    {
+      "z": "0x10000000000000000",
+      "out": "0x5692161d100b05e5"
+    },
+    {
+      "z": "0x7ffffffffffffffffffffffffffffffd",
+      "out": "0xe97e865226987740"
+    },
+    {
+      "z": "0xdeadbeefcafebabe",
+      "out": "0x7ad6664f09ffe52c"
+    },
+    {
+      "z": "0x123456789abcdef0123456789abcdef",
+      "out": "0x0"
+    }
+  ],
+  "engine_raw": [
+    {
+      "label": "typical",
+      "seed": "0x123456789abcdef0123456789abcdef",
+      "control": "0xfedcba9876543210fedcba9876543210",
+      "nonce": "0xa5a5a5a5",
+      "keystream": "65a8a26018c42eec581a7902fdd688ecee7a99768001b4f146773551279db4910d572096828140347a475ecac07b337f071ede37349ae3a874206d2a887df203"
+    },
+    {
+      "label": "all-zero-key",
+      "seed": "0x0",
+      "control": "0x0",
+      "nonce": "0x0",
+      "keystream": "7cb8e85d02af997152ee2640bd86e9d589af76ae1868b06a5ce6f4ed91dc0a1033f877c9e328a827a81885e7b48f77390f479c075471ebfaec4ee33bfea73f5e"
+    },
+    {
+      "label": "max-ish",
+      "seed": "0x7ffffffffffffffffffffffffffffffe",
+      "control": "0x7ffffffffffffffffffffffffffffffe",
+      "nonce": "0x7ffffffffffffffffffffffffffffffe",
+      "keystream": "a1259d4e8e7cd57cf5aa6d3ffaf8eb9397909c4982cd62ef52da868ce462a1c65b0d8b173f0396d679da94da3b540e8d22de17e98a5c8106d8e15773301c2279"
+    }
+  ],
+  "from_master": {
+    "key": "6368616f732d6b61742d6d61737465722d6b65792d7631",
+    "nonce": "6368616f732d6b61742d6e6f6e63652d7631",
+    "keystream": "f804ec06f25ce56fff0d21c81e2d9208da6161ee75e741af11b549c4e97069433acd2ef01d10b054d053dc373fd99b4cfbfa4c9833543dc77a1206966a1dcd69"
+  },
+  "multimap": [
+    {
+      "n_maps": 1,
+      "key": "6368616f732d6b61742d6d61737465722d6b65792d7631",
+      "nonce": "6368616f732d6b61742d6e6f6e63652d7631",
+      "keystream": "bd4d8d59713e05aba80ccee752dbaa725ddf6f25142d0f1343ae45d0ae283eb5f794a773ae7320d0f0962df42c32fd381e972e2da59ab34a7d265fa8c901bf54"
+    },
+    {
+      "n_maps": 4,
+      "key": "6368616f732d6b61742d6d61737465722d6b65792d7631",
+      "nonce": "6368616f732d6b61742d6e6f6e63652d7631",
+      "keystream": "81c38d6cf5da69ab5951a4f0f29bf3aeefcdf06305b016498f08bc0f39a645b93b13e517c26fb64e32375dbd2b9ec08a766076a347b9865a5c5cf52096243d68"
+    }
+  ],
+  "ratchet": {
+    "key": "6368616f732d6b61742d6d61737465722d6b65792d7631",
+    "nonce": "6368616f732d6b61742d6e6f6e63652d7631",
+    "epoch_bytes": 32,
+    "length": 80,
+    "keystream": "3a7afe269386e2cc07bd494b0e5e8dc35820b5567937fa14a482b7bc15f01655f907e0336b648d87fc776b9165a2f2fce7bff572f9f6c6472fc72503e71947152df0ce15d56c15644c17644fac41aade"
+  },
+  "siv": {
+    "key": "6368616f732d6b61742d6d61737465722d6b65792d7631",
+    "aad": "6b61742d616164",
+    "plaintext": "6b6e6f776e2d616e7377657220706c61696e7465787420666f72207468652064657465726d696e697374696320534956204145414420706174682e",
+    "blob": "642f04423154d7d117fcc3ade619c8b881df14bf535c0eaf17a1120c4b4413f1826c924b0a3408127038d07554b57b1dc631b00aaa977274cb69fc452d3f268b9a6b9fa24aa6ed44fe8330ad9f1ba783dbd5232da9c109e55452ca"
+  }
+}
