@@ -54,13 +54,15 @@ OUTPUT_BYTES_PER_STEP = 4
 def _finalize(z: int) -> int:
     """Nonlinear ARX 'frosted-glass' output filter (the SplitMix64 / MurmurHash3 fmix64 mixer).
 
-    Maps the 61-bit chaotic state to a well-avalanched 64-bit word with xorshift + multiply. The
+    Maps the 127-bit chaotic state to a well-avalanched 64-bit word with xorshift + multiply. The
     multiplications make it NONLINEAR, so the piecewise-linear PWLCM structure an attacker would use
     to invert the map is destroyed. No division, no tables => fast, Rust-friendly, constant-time.
 
     HONEST NOTE: this mixer is itself a bijection. The one-wayness an attacker faces comes from
-    TRUNCATION (we emit only OUTPUT_BYTES_PER_STEP of the 8 bytes) + the 3-map XOR combiner — not
-    from the mix alone. To be measured, not asserted (Phase 2)."""
+    TRUNCATION (we emit only OUTPUT_BYTES_PER_STEP of the 8 bytes) + the 4-map XOR combiner — not
+    from the mix alone. MEASURED in Phase 2 (attacks/differential_attack.py): no avalanche gap (every
+    state bit reaches the output ~1/2), no usable single-bit differential, no published->hidden/state
+    correlation, and the preimage law ~2^(w/2) holds (=> 2^32 candidates per emitted step, per map)."""
     # Fold the wide state into 64 bits FIRST so every state bit reaches the output. With the bigger
     # grid (#1) the state is up to 127 bits; a bare 64-bit mask would silently drop the top 63 bits.
     # XOR-folding the high half in keeps the whole state live. (No-op for states <= 64 bits.)

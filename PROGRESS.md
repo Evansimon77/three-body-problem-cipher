@@ -1,6 +1,6 @@
 # Chaos Cipher (Progress)
 
-Last updated: 2026-06-28 | Branch: branchless-core | Status: 🛠️ **MAX-SECURITY REBUILD IN PROGRESS** — no-compromise path. **Phase 0 done** (branchless constant-time map). **Phase 1 #3/#4 done** (frosted-glass nonlinear output + multi-byte). **Phase 1 #1 done TODAY** (bigger grid 2^61→2^127): per-map period lifted ~2^30 → ~2^62 (√M law, measured exponent 0.489). The edge census CAUGHT a real bug #1 introduced — a degenerate all-zero key fell into a 6-step short cycle because nonce=0 collapsed the init mixing to `x=key+1` (a tiny start state that resonates with the map). FIXED by an unconditional avalanche in the init so any key→strong x0; re-verified 0/7 short cycles, 72/72 tests, all 4 filter attacks pass, bias clean. **Phase 1 #2 done TODAY** (map count 3→**4**): chose 4 after measuring — sub-maps proven independent (worst pairwise corr 0.008), combined output clean at N=3/4/5, cost ~linear (4 = 1.3× the 3-map time), work-factor at N=4 ~2^252 period / ~2^508 joint state. Stopped at 4 not 5+ because all maps share the master key, so key/KDF — not map count — is the real ceiling. New validation: `attacks/map_count_attack.py`. **Phase 1 A (auto-rekey ratchet) done TODAY** — new `ratchet.py`: one-way HMAC-SHA256 key chain re-keys every 64 KiB and burns the old key. Gives **forward secrecy** (a key leak can't decrypt past epochs — demonstrated) + **dissolves the period limit** (each epoch is a fresh ~2^252 orbit; usable length effectively unbounded). Validated `attacks/ratchet_attack.py` (forward secrecy PASS, epochs independent, no re-key seam — after fixing a too-strict seam test that cried wolf on sampling noise). 81/81 tests. **🎉 PHASE 1 COMPLETE. Next: Phase 2 — attack the whole new design HARD.** See "🗺️ MASTER ROADMAP".
+Last updated: 2026-06-28 | Branch: branchless-core | Status: 🛠️ **MAX-SECURITY REBUILD IN PROGRESS** — no-compromise path. **🎉 PHASE 1 COMPLETE.** **Phase 2 STARTED** — **item D done** (`attacks/differential_attack.py`): a differential + correlation hunt on the brand-new output path (the 127→64 fold, the fmix64 mixer, the top-32 truncation). All four parts pass *at the chance noise floor* (the worst cell out of thousands looks exactly like the worst pure randomness would give): every state bit avalanches into the output, the fold genuinely carries the top half (P∈[0.470,0.528]), no usable single-bit differential, the truncation wall leaks nothing (published top-32 ↔ hidden low-32 corr at floor), and the 2^(w/2) preimage law is confirmed (2^32 candidate finalize-inputs per emitted step, per map). 81/81 tests. **Phase 0 done** (branchless constant-time map). **Phase 1 #3/#4 done** (frosted-glass nonlinear output + multi-byte). **Phase 1 #1 done TODAY** (bigger grid 2^61→2^127): per-map period lifted ~2^30 → ~2^62 (√M law, measured exponent 0.489). The edge census CAUGHT a real bug #1 introduced — a degenerate all-zero key fell into a 6-step short cycle because nonce=0 collapsed the init mixing to `x=key+1` (a tiny start state that resonates with the map). FIXED by an unconditional avalanche in the init so any key→strong x0; re-verified 0/7 short cycles, 72/72 tests, all 4 filter attacks pass, bias clean. **Phase 1 #2 done TODAY** (map count 3→**4**): chose 4 after measuring — sub-maps proven independent (worst pairwise corr 0.008), combined output clean at N=3/4/5, cost ~linear (4 = 1.3× the 3-map time), work-factor at N=4 ~2^252 period / ~2^508 joint state. Stopped at 4 not 5+ because all maps share the master key, so key/KDF — not map count — is the real ceiling. New validation: `attacks/map_count_attack.py`. **Phase 1 A (auto-rekey ratchet) done TODAY** — new `ratchet.py`: one-way HMAC-SHA256 key chain re-keys every 64 KiB and burns the old key. Gives **forward secrecy** (a key leak can't decrypt past epochs — demonstrated) + **dissolves the period limit** (each epoch is a fresh ~2^252 orbit; usable length effectively unbounded). Validated `attacks/ratchet_attack.py` (forward secrecy PASS, epochs independent, no re-key seam — after fixing a too-strict seam test that cried wolf on sampling noise). 81/81 tests. **🎉 PHASE 1 COMPLETE. Next: Phase 2 — attack the whole new design HARD.** See "🗺️ MASTER ROADMAP".
 
 ---
 Prior status: 🔬 **v9 PERIOD CENSUS DONE** — answered the veteran's make-or-break question (§2). Honest finding: the map is a **random function**, so period ≈ **√M ≈ 2³⁰, NOT 2⁶¹** (rho/birthday law, measured exponent 0.489). **No traps:** 1,000/1,000 production keys + 7 adversarial edges show no short cycle; fixed-point capture ~1e-9 and even then mutes only 1 of the 3 XOR'd maps. Mitigated by the 3-map combiner (lcm ~2⁹⁰) + CTR mode + a per-key data limit. REPORT **v9**; `test_period.py` upgraded to a **1,000-marble guard**. **72/72 tests pass.** (Prior: all 3 hardening suggestions done & merged to main `cdc598c`.) Resume point: 🔖 **SPEED / Rust rewrite** — architecture DECIDED (chaos outer wall + AES inner vault; make the chaos engine itself fast, don't blend AES in); user leaning **Rust** for a fast constant-time core; mid-discussion on the "expert questions" checklist (§2 period = DONE; §4 constant-time + §3 KAT set = pre-port must-dos). See "🔖 RESUME HERE" in NEXT. End-goal unchanged: deploy as **outer layer over a vetted primitive** ("Option B") for AsturAI client data — never the only lock.
@@ -42,8 +42,11 @@ let strangers attack it.** Never speed up or ship a design that isn't finalized 
   - **✅ PHASE 1 COMPLETE (2026-06-28).** Core design finalized: branchless map, frosted-glass output,
     multi-byte, 2^127 grid, 4 maps, auto-rekey. ▶ Next: **Phase 2 — attack the whole design hard.**
 - [ ] **Phase 2 — Attack our own design HARD** (nothing proceeds unless it survives):
-  - [ ] **D. New attack tooling** — correlation/differential hunt on the new output↔state (mandatory
-        because #3 adds new math).
+  - [x] **D. New attack tooling** — DONE 2026-06-28 (`attacks/differential_attack.py`). Differential +
+        correlation battery on the NEW output path (fold + fmix64 + truncation). All 4 parts pass at the
+        noise floor: avalanche (every 127 state bits reach output ~½, fold carries top half), no usable
+        single-bit differential, no published→hidden/state correlation (truncation wall holds), preimage
+        law ~2^(w/2) confirmed (2^32 candidates/step/map).
   - [ ] Re-run every existing attack vs the new design (two-time-pad, state-recovery, MITM).
   - [ ] New period census on the bigger grid; state-size/TMTO check; **#7 heavy randomness**
         (PractRand/dieharder).
@@ -144,6 +147,27 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 - ⚠️ ~700–800× slower than AES/ChaCha. **Still UNVETTED** — not for real data.
 
 ## Recent Work
+
+### ✅ DONE 2026-06-28: Phase 2 (D) — differential & correlation hunt on the NEW output path
+> Branch `branchless-core`. First Phase-2 item. New `attacks/differential_attack.py` attacks the math
+> Phase 1 ADDED and nothing had yet hit directly: the **fold** (127-bit state XOR-folded to 64), the
+> **fmix64 mixer** (#3 frosted glass), and the **truncation** (emit only the top 32 of 64 bits). Four
+> parts, every claim a measured number judged against the honest noise floor (√(2 ln n_cells), because
+> a fixed "3σ" cutoff cries wolf when you test thousands of cells):
+> **Part 1 — avalanche:** flip each of the 127 state bits, measure P(each of 64 output bits flips).
+> Worst cell 3.79σ vs a 4.24σ chance-floor; 0 avalanche-gap cells; the high state bits (64–126, the
+> folded-in half) reach the output at P∈[0.470,0.528] — proves the fold actually carries the top half
+> (the bug #1 could have left). **Part 2 — differentials:** single-bit input differences give unbiased
+> per-bit output diffs (4.27σ at a 4.24σ floor) and the output diff spreads to ~32 of 64 bits — no
+> high-probability differential. **Part 3 — truncation wall:** drove the REAL engine, measured published
+> top-32 ↔ hidden low-32 (and ↔ state, and word t↔t+1) bit correlations — all at floor (3.73σ vs 3.72),
+> so the bits we publish leak nothing about the half we hide. **Part 4 — recovery cost:** censused a
+> width-scaled mixer; preimage count tracks 2^(w/2) exactly → at full width 2^32 candidate finalize-
+> inputs per emitted step, PER map, XOR'd over 4 — the honest reason truncation is the wall. Fixed the
+> now-stale `_finalize` docstring (61-bit→127, 3-map→4-map) and pointed it at this evidence. **81/81
+> tests.** Honest scope: bounds biases to ~1/√N at the tested N; absence of a found bias ≠ proof. Still
+> UNVETTED. **Next Phase-2 items: honest re-run/relabel of the existing attacks (they run on the new
+> engine but some still print "3-map/2^61"), new period census on 2^127, TMTO/state-size, #7 PractRand.**
 
 ### ✅ DONE 2026-06-28: Phase 1 (A) — auto-rekey ratchet (forward secrecy + unbounded length) → PHASE 1 COMPLETE
 > Branch `branchless-core`. New module `ratchet.py` (`RatchetEngine`, drop-in keystream source). A
