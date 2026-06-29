@@ -373,7 +373,9 @@ type HmacSha256 = Hmac<Sha256>;
 /// and each epoch key, exactly like ratchet.py `_kdf`. HMAC accepts any key length, so `expect`
 /// never fires.
 fn hmac_sha256(key: &[u8], label: &[u8]) -> [u8; 32] {
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    // `as Mac` disambiguates: the two-locks section (Phase 8.4) brings `aead::KeyInit` into crate
+    // scope, and HmacSha256 implements both KeyInit and Mac — name the trait we want explicitly.
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
     mac.update(label);
     mac.finalize().into_bytes().into()
 }
@@ -491,7 +493,9 @@ const MAC_INFO: &[u8] = b"chaos-pwlcm-v1|mac-key"; // aead.py _MAC_INFO
 /// HMAC-SHA256 over several parts in order (incremental, no intermediate concat). Mirrors Python's
 /// `hmac.new(key).update(p) ...` so the byte stream fed to the MAC is identical.
 fn hmac_sha256_multi(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    // `as Mac` disambiguates: the two-locks section (Phase 8.4) brings `aead::KeyInit` into crate
+    // scope, and HmacSha256 implements both KeyInit and Mac — name the trait we want explicitly.
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
     for p in parts {
         mac.update(p);
     }
@@ -798,6 +802,140 @@ impl RatchetAeadReceiver {
     }
 }
 
+// ---- two-locks wrapper (Phase 8.4): chaos OUTER wall over a VETTED inner vault (port of twolock.py) ----
+//
+// THE SECURITY GOAL of the whole project. The chaos keystream is UNVETTED, so it is NEVER the only lock.
+// We wrap the data in two independent locks, one inside the other:
+//
+//     plaintext --[ INNER vault: AES-256-GCM / ChaCha20-Poly1305 ]--> --[ OUTER wall: chaos AEAD ]--> wire
+//
+// The inner vault is a real, peer-reviewed cipher and is what ACTUALLY guarantees the data. The outer
+// chaos AEAD is the exposed, sacrificial barrier an attacker hits first. Even a TOTAL chaos break leaves
+// the attacker facing AES-256-GCM (~2^128), data intact — that is why an unvetted cipher is safe to ship
+// HERE and nowhere else. Vetted INSIDE, chaos OUTSIDE: the lock the plaintext depends on must be the
+// vetted one, and the unvetted experiment lives where attackers can batter it. (Full rationale: twolock.py.)
+//
+// KEY SEPARATION: the two locks never share a key. HKDF-SHA256 (vetted, RFC 5869, salt=None to match
+// Python) splits the caller's master key into two independent 32-byte keys under distinct info labels —
+// breaking the outer (chaos) key reveals nothing about the inner (vault) key.
+//
+// Wire format: the blob IS the outer chaos AEAD blob. What the chaos layer encrypts is the inner blob:
+//     alg(1) || inner_nonce(12) || inner_ciphertext+tag(N)
+// The alg byte rides INSIDE the authenticated+encrypted outer layer, so open is self-describing and an
+// attacker can neither read nor change which inner cipher was used. The same aad binds BOTH locks.
+//
+// Like aead_seal, the two nonces (inner 12-byte, outer 16-byte) are the only nondeterminism; the Python
+// shell randomizes them, the Rust core takes them explicitly so the caller owns randomness and the KAT
+// can pin them. Both inner ciphers and HKDF are standard RustCrypto crates — only the OUTER wall is ours.
+
+use aes_gcm::aead::{generic_array::GenericArray, Aead, KeyInit, Payload};
+use aes_gcm::Aes256Gcm;
+use chacha20poly1305::ChaCha20Poly1305;
+use hkdf::Hkdf;
+
+pub const INNER_NONCE_LEN: usize = 12; // 96-bit nonce for both AES-GCM and ChaCha20-Poly1305
+const TWOLOCK_KEY_LEN: usize = 32; // AES-256 / ChaCha20 key, and the derived outer-wall key
+
+/// Inner-cipher selector. Authenticated+encrypted inside the outer layer, so open is self-describing.
+pub const TWOLOCK_AES: u8 = 0x01;
+pub const TWOLOCK_CHACHA: u8 = 0x02;
+
+const TWOLOCK_HKDF_INNER_INFO: &[u8] = b"chaos-pwlcm-v1|twolock|inner-vault|v1";
+const TWOLOCK_HKDF_OUTER_INFO: &[u8] = b"chaos-pwlcm-v1|twolock|outer-wall|v1";
+
+/// One HKDF-SHA256 derivation (salt=None -> a string of zeros, matching Python's `HKDF(salt=None)`).
+/// The result is `Zeroizing`, so the derived key is wiped from memory when it drops.
+fn hkdf_sha256_key(master_key: &[u8], info: &[u8]) -> Zeroizing<[u8; TWOLOCK_KEY_LEN]> {
+    let hk = Hkdf::<Sha256>::new(None, master_key);
+    let mut okm = Zeroizing::new([0u8; TWOLOCK_KEY_LEN]);
+    hk.expand(info, &mut okm[..])
+        .expect("32 bytes is a valid HKDF-SHA256 output length");
+    okm
+}
+
+/// Split the master key into (outer-wall key, inner-vault key). Distinct info labels domain-separate
+/// them; HKDF's one-wayness means recovering one (e.g. by breaking chaos) does not leak the other.
+fn twolock_derive_keys(
+    master_key: &[u8],
+) -> (Zeroizing<[u8; TWOLOCK_KEY_LEN]>, Zeroizing<[u8; TWOLOCK_KEY_LEN]>) {
+    let k_outer = hkdf_sha256_key(master_key, TWOLOCK_HKDF_OUTER_INFO);
+    let k_inner = hkdf_sha256_key(master_key, TWOLOCK_HKDF_INNER_INFO);
+    (k_outer, k_inner)
+}
+
+/// Generic vetted-AEAD encrypt over RustCrypto's `aead` trait (works for AES-256-GCM and ChaCha20-
+/// Poly1305 alike). Returns ciphertext||tag, or None if the key length is wrong.
+fn vault_seal<C: Aead + KeyInit>(key: &[u8], nonce: &[u8], pt: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
+    let cipher = C::new_from_slice(key).ok()?;
+    cipher
+        .encrypt(GenericArray::from_slice(nonce), Payload { msg: pt, aad })
+        .ok()
+}
+
+/// Generic vetted-AEAD decrypt: None on a bad tag (wrong key / tamper) or wrong key length.
+fn vault_open<C: Aead + KeyInit>(key: &[u8], nonce: &[u8], ct: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
+    let cipher = C::new_from_slice(key).ok()?;
+    cipher
+        .decrypt(GenericArray::from_slice(nonce), Payload { msg: ct, aad })
+        .ok()
+}
+
+fn inner_vault_seal(alg: u8, key: &[u8], nonce: &[u8], pt: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
+    match alg {
+        TWOLOCK_AES => vault_seal::<Aes256Gcm>(key, nonce, pt, aad),
+        TWOLOCK_CHACHA => vault_seal::<ChaCha20Poly1305>(key, nonce, pt, aad),
+        _ => None,
+    }
+}
+
+fn inner_vault_open(alg: u8, key: &[u8], nonce: &[u8], ct: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
+    match alg {
+        TWOLOCK_AES => vault_open::<Aes256Gcm>(key, nonce, ct, aad),
+        TWOLOCK_CHACHA => vault_open::<ChaCha20Poly1305>(key, nonce, ct, aad),
+        _ => None,
+    }
+}
+
+/// Seal under two independent locks: the vetted inner vault, then the chaos outer wall (mirror of
+/// seal_twolock). `inner_alg` selects the vault (TWOLOCK_AES / TWOLOCK_CHACHA). `aad` is bound to BOTH
+/// locks. None if the inner cipher id is unknown. The two nonces are explicit (caller owns randomness).
+pub fn twolock_seal(
+    master_key: &[u8],
+    outer_nonce: &[u8],
+    inner_nonce: &[u8],
+    plaintext: &[u8],
+    aad: &[u8],
+    inner_alg: u8,
+    n_maps: usize,
+) -> Option<Vec<u8>> {
+    let (k_outer, k_inner) = twolock_derive_keys(master_key);
+    // INNER vault: real, vetted AEAD with its own nonce.
+    let inner_ct = inner_vault_seal(inner_alg, &k_inner[..], &inner_nonce[..INNER_NONCE_LEN], plaintext, aad)?;
+    let mut inner_blob = Vec::with_capacity(1 + INNER_NONCE_LEN + inner_ct.len());
+    inner_blob.push(inner_alg);
+    inner_blob.extend_from_slice(&inner_nonce[..INNER_NONCE_LEN]);
+    inner_blob.extend_from_slice(&inner_ct);
+    // OUTER wall: the chaos AEAD wraps the whole inner blob (and binds the same aad again).
+    Some(aead_seal(&k_outer[..], outer_nonce, &inner_blob, aad, n_maps))
+}
+
+/// Peel the chaos outer wall, then open the vetted inner vault (mirror of open_twolock). None if EITHER
+/// lock rejects (wrong key or tamper at any layer); plaintext is NEVER returned in that case. The inner
+/// cipher id is read from the authenticated inner blob, so the caller need not specify it.
+pub fn twolock_open(master_key: &[u8], blob: &[u8], aad: &[u8], n_maps: usize) -> Option<Vec<u8>> {
+    let (k_outer, k_inner) = twolock_derive_keys(master_key);
+    // OUTER wall first: chaos AEAD verifies + decrypts; None on tamper / wrong outer key.
+    let inner_blob = aead_open(&k_outer[..], blob, aad, n_maps)?;
+    if inner_blob.len() < 1 + INNER_NONCE_LEN {
+        return None;
+    }
+    let alg = inner_blob[0];
+    let inner_nonce = &inner_blob[1..1 + INNER_NONCE_LEN];
+    let inner_ct = &inner_blob[1 + INNER_NONCE_LEN..];
+    // INNER vault: the lock that actually guarantees the data — stops an attacker even if chaos fell.
+    inner_vault_open(alg, &k_inner[..], inner_nonce, inner_ct, aad)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1017,5 +1155,61 @@ mod tests {
         let a = ChaosEngine::new(11, 22, 33).keystream(64);
         let b = ChaosEngine::new(11, 22, 33).keystream(64);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn twolock_roundtrip_both_inner_ciphers() {
+        let master = b"two-locks master key";
+        let outer_nonce = b"outer-nonce-16by"; // 16 bytes
+        let inner_nonce = b"inner-nonce1"; // 12 bytes
+        let aad = b"context";
+        let pt = b"vault the secret behind two independent locks";
+        for alg in [TWOLOCK_AES, TWOLOCK_CHACHA] {
+            let blob =
+                twolock_seal(master, outer_nonce, inner_nonce, pt, aad, alg, DEFAULT_N_MAPS).unwrap();
+            let got = twolock_open(master, &blob, aad, DEFAULT_N_MAPS).unwrap();
+            assert_eq!(got, pt, "two-locks round trip failed for inner alg {alg:#x}");
+        }
+    }
+
+    #[test]
+    fn twolock_rejects_tamper_wrong_key_and_wrong_aad() {
+        let master = b"two-locks master key";
+        let outer_nonce = b"outer-nonce-16by";
+        let inner_nonce = b"inner-nonce1";
+        let aad = b"context";
+        let pt = b"defense in depth";
+        let blob =
+            twolock_seal(master, outer_nonce, inner_nonce, pt, aad, TWOLOCK_AES, DEFAULT_N_MAPS)
+                .unwrap();
+
+        // Wrong master key -> the outer wall rejects (its derived key is different).
+        assert!(twolock_open(b"the wrong master key", &blob, aad, DEFAULT_N_MAPS).is_none());
+        // Wrong aad -> the outer wall's MAC/commitment rejects.
+        assert!(twolock_open(master, &blob, b"other aad", DEFAULT_N_MAPS).is_none());
+        // Flip one outer-ciphertext byte (past nonce + commitment) -> rejected, no plaintext.
+        let mut bad = blob.clone();
+        bad[NONCE_LEN + COMMIT_LEN + 1] ^= 0x01;
+        assert!(twolock_open(master, &bad, aad, DEFAULT_N_MAPS).is_none());
+    }
+
+    #[test]
+    fn twolock_key_separation_outer_key_does_not_open_inner() {
+        // The whole guarantee: even if an attacker fully breaks chaos and recovers the OUTER blob's
+        // plaintext (the inner blob), the inner vault key is independent — so they cannot open it.
+        let master = b"two-locks master key";
+        let (k_outer, k_inner) = twolock_derive_keys(master);
+        assert_ne!(&k_outer[..], &k_inner[..], "the two derived keys must differ");
+
+        // Peel the outer wall ourselves (simulating a total chaos break) to get the inner blob...
+        let blob = twolock_seal(master, b"outer-nonce-16by", b"inner-nonce1", b"top secret", b"a",
+                                TWOLOCK_AES, DEFAULT_N_MAPS).unwrap();
+        let inner_blob = aead_open(&k_outer[..], &blob, b"a", DEFAULT_N_MAPS).unwrap();
+        let alg = inner_blob[0];
+        let nonce = &inner_blob[1..1 + INNER_NONCE_LEN];
+        let ct = &inner_blob[1 + INNER_NONCE_LEN..];
+        // ...the inner vault opens with the inner key, but NOT with the (exposed) outer key.
+        assert!(inner_vault_open(alg, &k_inner[..], nonce, ct, b"a").is_some());
+        assert!(inner_vault_open(alg, &k_outer[..], nonce, ct, b"a").is_none());
     }
 }

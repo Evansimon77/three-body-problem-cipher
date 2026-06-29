@@ -28,6 +28,13 @@ hmac = "0.12"
 # Wipes the retired chain key from memory on each re-key and on drop — the forward-secrecy guarantee
 # Python could only promise (immutable, GC'd bytes). Closes the one gap ratchet.py flagged for the port.
 zeroize = "1"
+# --- Phase 8.4 two-locks: the VETTED inner vault + the vetted key-split. The whole point of two-locks
+# is that the data's real guarantee rests on a peer-reviewed cipher, NEVER the hand-rolled chaos math.
+# So these are standard RustCrypto implementations, mirroring Python's `cryptography` AES-GCM / ChaCha /
+# HKDF byte-for-byte — only the OUTER chaos wall is bespoke.
+hkdf = "0.12"             # HKDF-SHA256 key split (outer-wall key vs inner-vault key); RFC 5869, salt=None.
+aes-gcm = "0.10"          # AES-256-GCM inner vault (default). 96-bit nonce, 128-bit tag — matches Python.
+chacha20poly1305 = "0.10" # ChaCha20-Poly1305 inner vault (alt). Self-describing alg byte selects it.
 
 [profile.release]
 opt-level = 3

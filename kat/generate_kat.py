@@ -22,9 +22,15 @@ WHAT IS COVERED — every DETERMINISTIC layer the port must reproduce, bottom-up
   5. ratchet      — the shipped auto-rekey stream, with a TINY epoch so the vector crosses
                     two re-key seams (proves the seam math is frozen too).
   6. siv          — the fully deterministic AEAD (seal_siv), a full-stack end-to-end vector.
+  7. aead         — the committing AEAD (aead.seal), full stack, with its nonce PINNED for the KAT.
+  8. stream       — the streaming AEAD (seal_stream), multi-chunk self-delimiting blob, salt pinned.
+  9. ratchet_aead — the forward-secret SESSION AEAD, a 3-message session crossing two chain seams.
+  10. twolock     — the two-locks wrapper: chaos OUTER wall over a VETTED inner vault (AES-256-GCM
+                    and ChaCha20-Poly1305), HKDF key-split, both nonces pinned.
 
-The AEAD `seal()` in aead.py is deliberately NOT here: it draws a fresh random nonce, so it
-has no fixed answer by design. Its determinism is covered by its own round-trip tests.
+Anything random by design (a fresh nonce/salt drawn per call) is pinned via a keyword-only KAT hook
+so it has a fixed answer here; in real use those default to fresh randomness. Round-trip + attack
+tests cover the non-frozen behaviour.
 
 USAGE
 -----
@@ -52,6 +58,7 @@ from ratchet import RatchetEngine  # noqa: E402
 from ratchet_aead import SenderSession  # noqa: E402
 from siv import seal_siv  # noqa: E402
 from streaming import seal_stream  # noqa: E402
+from twolock import seal_twolock  # noqa: E402
 
 VECTORS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vectors.json")
 
@@ -161,6 +168,26 @@ def compute_vectors() -> dict:
                          "inner_nonces": [n.hex() for n in ra_inner_nonces],
                          "plaintexts": [m.hex() for m in ra_messages],
                          "wires": [w.hex() for w in ra_wires]}
+
+    # 10. twolock — the two-locks wrapper (twolock.py): the chaos OUTER wall over a VETTED inner vault,
+    #     keys split by HKDF-SHA256. We pin BOTH nonces (inner 12-byte, outer 16-byte) — the only
+    #     nondeterminism. One blob per inner cipher (AES-256-GCM default + ChaCha20-Poly1305) freezes the
+    #     whole stack end-to-end: HKDF key-split, the vetted inner AEAD, the self-describing alg byte, and
+    #     the outer chaos AEAD over the inner blob. The outer wall uses the default 4 maps (twolock.py
+    #     calls aead.seal without n_maps), so the Rust parity test passes n_maps=4 to match.
+    tl_master = _KEY_BYTES
+    tl_aad = b"kat-twolock-aad"
+    tl_outer_nonce = b"chaos-kat-tl-non"          # 16 bytes (outer chaos AEAD nonce)
+    tl_inner_nonce = b"tl-kat-non12"              # 12 bytes (inner vault nonce)
+    tl_pt = b"two independent locks: a vetted vault inside the chaos wall."
+    tl_blobs = {}
+    for name in ("aes-256-gcm", "chacha20-poly1305"):
+        blob = seal_twolock(tl_master, tl_pt, aad=tl_aad, inner=name,
+                            inner_nonce=tl_inner_nonce, outer_nonce=tl_outer_nonce)
+        tl_blobs[name] = blob.hex()
+    v["twolock"] = {"master": tl_master.hex(), "outer_nonce": tl_outer_nonce.hex(),
+                    "inner_nonce": tl_inner_nonce.hex(), "aad": tl_aad.hex(),
+                    "plaintext": tl_pt.hex(), "n_maps": 4, "blobs": tl_blobs}
 
     return v
 

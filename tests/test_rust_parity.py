@@ -221,3 +221,48 @@ def test_python_opens_rust_sealed_ratchet_aead():
     opened = [rx.open(bytes.fromhex(w)) for w in rust_wires]
     assert opened == [bytes.fromhex(p) for p in c["plaintexts"]], \
         "Python could not open the Rust-sealed session."
+
+
+def test_rust_matches_kat_twolock_seal():
+    """Two-locks (Phase 8.4): for each inner cipher, Rust seal of the fixed (master, nonces, aad, pt)
+    must equal the frozen blob byte-for-byte — proves the HKDF key-split, the vetted inner vault
+    (AES-256-GCM / ChaCha20-Poly1305), and the outer chaos wall all match Python."""
+    c = _frozen("twolock")
+    for alg, blob in c["blobs"].items():
+        got = _rust("twolock_seal", c["master"], c["outer_nonce"], c["inner_nonce"],
+                    c["aad"], c["plaintext"], alg, c["n_maps"])
+        assert got == blob, f"Rust twolock_seal ({alg}) diverged from the frozen KAT blob."
+
+
+def test_rust_twolock_open_roundtrip():
+    """Rust open of each frozen two-locks blob returns the original plaintext (peels chaos, then vault)."""
+    c = _frozen("twolock")
+    for blob in c["blobs"].values():
+        got = _rust("twolock_open", c["master"], c["aad"], blob, c["n_maps"])
+        assert got == c["plaintext"], "Rust twolock_open did not recover the plaintext."
+
+
+def test_rust_twolock_rejects_tamper():
+    """A flipped outer-ciphertext byte must make Rust two-locks open fail closed (INVALID, no plaintext)."""
+    c = _frozen("twolock")
+    blob = bytearray(bytes.fromhex(c["blobs"]["aes-256-gcm"]))
+    blob[16 + 32 + 1] ^= 0x01           # flip an outer-wall ciphertext byte (past nonce + commitment)
+    got = _rust("twolock_open", c["master"], c["aad"], blob.hex(), c["n_maps"])
+    assert got == "INVALID", "Rust twolock_open accepted a tampered blob."
+
+
+def test_python_opens_rust_sealed_twolock():
+    """Real interop: a two-locks blob SEALED by the Rust core must OPEN under the Python shell, for BOTH
+    inner ciphers. This is what proves Rust's HKDF + AES-GCM/ChaCha + chaos wall are wire-compatible with
+    Python's `cryptography` library, not just internally self-consistent."""
+    import sys
+    sys.path.insert(0, _ROOT)
+    from twolock import open_twolock  # noqa: E402
+
+    c = _frozen("twolock")
+    for alg in c["blobs"]:
+        rust_blob = bytes.fromhex(_rust("twolock_seal", c["master"], c["outer_nonce"],
+                                        c["inner_nonce"], c["aad"], c["plaintext"], alg, c["n_maps"]))
+        opened = open_twolock(bytes.fromhex(c["master"]), rust_blob, aad=bytes.fromhex(c["aad"]))
+        assert opened == bytes.fromhex(c["plaintext"]), \
+            f"Python could not open the Rust-sealed two-locks blob ({alg})."

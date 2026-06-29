@@ -9,8 +9,9 @@
 use std::time::Instant;
 
 use chaos_core::{
-    aead_open, aead_seal, stream_open, stream_seal, ChaosEngine, MultiMapEngine, RatchetAeadReceiver,
-    RatchetAeadSender, RatchetEngine, DEFAULT_N_MAPS,
+    aead_open, aead_seal, stream_open, stream_seal, twolock_open, twolock_seal, ChaosEngine,
+    MultiMapEngine, RatchetAeadReceiver, RatchetAeadSender, RatchetEngine, DEFAULT_N_MAPS,
+    TWOLOCK_AES, TWOLOCK_CHACHA,
 };
 
 /// Parse a hex byte string (e.g. the KAT key/nonce material) into raw bytes.
@@ -29,6 +30,16 @@ fn hex_of(bytes: &[u8]) -> String {
         out.push_str(&format!("{b:02x}"));
     }
     out
+}
+
+/// Map an inner-cipher name (or numeric id) to the two-locks alg byte. Accepts the Python shell's
+/// names so the same KAT keys ("aes-256-gcm" / "chacha20-poly1305") drive both implementations.
+fn parse_inner_alg(s: &str) -> u8 {
+    match s.trim() {
+        "aes" | "aes-256-gcm" | "1" | "0x01" => TWOLOCK_AES,
+        "chacha" | "chacha20-poly1305" | "2" | "0x02" => TWOLOCK_CHACHA,
+        other => panic!("unknown inner cipher {other:?} (use aes-256-gcm or chacha20-poly1305)"),
+    }
 }
 
 fn parse_u128(s: &str) -> u128 {
@@ -170,6 +181,34 @@ fn main() {
                 println!("INVALID");
             }
         }
+        "twolock_seal" => {
+            // chaos_core twolock_seal <master_hex> <outer_nonce_hex> <inner_nonce_hex> <aad_hex>
+            //     <pt_hex> <inner_alg> <n_maps>  -> two-locks blob hex (or INVALID for an unknown alg)
+            // inner_alg: aes-256-gcm | chacha20-poly1305. Both nonces are explicit so the KAT can pin them.
+            let master = parse_hex_bytes(&args[2]);
+            let outer_nonce = parse_hex_bytes(&args[3]);
+            let inner_nonce = parse_hex_bytes(&args[4]);
+            let aad = parse_hex_bytes(&args[5]);
+            let pt = parse_hex_bytes(&args[6]);
+            let alg = parse_inner_alg(&args[7]);
+            let n_maps: usize = args[8].parse().expect("bad n_maps");
+            match twolock_seal(&master, &outer_nonce, &inner_nonce, &pt, &aad, alg, n_maps) {
+                Some(blob) => println!("{}", hex_of(&blob)),
+                None => println!("INVALID"),
+            }
+        }
+        "twolock_open" => {
+            // chaos_core twolock_open <master_hex> <aad_hex> <blob_hex> <n_maps>  -> plaintext hex or INVALID
+            // The inner cipher is self-describing (read from the authenticated inner blob), so it is not given.
+            let master = parse_hex_bytes(&args[2]);
+            let aad = parse_hex_bytes(&args[3]);
+            let blob = parse_hex_bytes(&args[4]);
+            let n_maps: usize = args[5].parse().expect("bad n_maps");
+            match twolock_open(&master, &blob, &aad, n_maps) {
+                Some(pt) => println!("{}", hex_of(&pt)),
+                None => println!("INVALID"),
+            }
+        }
         "benchmm" => {
             // chaos_core benchmm <n_maps> <mbytes>  -> throughput of the REAL shipped combiner.
             let n_maps: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(DEFAULT_N_MAPS);
@@ -279,6 +318,8 @@ fn main() {
             eprintln!("       chaos_core stream_open <key_hex> <aad_hex> <n_maps> <blob_hex>");
             eprintln!("       chaos_core ratchet_aead_seal <master_hex> <nonce_hex> <aad_hex> <n_maps> <inner_nonce_hex> <pt_hex>...");
             eprintln!("       chaos_core ratchet_aead_open <master_hex> <nonce_hex> <aad_hex> <n_maps> <wire_hex>...");
+            eprintln!("       chaos_core twolock_seal <master_hex> <outer_nonce_hex> <inner_nonce_hex> <aad_hex> <pt_hex> <inner_alg> <n_maps>");
+            eprintln!("       chaos_core twolock_open <master_hex> <aad_hex> <blob_hex> <n_maps>");
             eprintln!("       chaos_core bench <mbytes>");
             eprintln!("       chaos_core benchmm <n_maps> <mbytes>");
             eprintln!("       chaos_core timing <keys>");

@@ -99,13 +99,19 @@ def _derive_keys(master_key: bytes) -> tuple[bytes, bytes]:
 
 
 def seal_twolock(master_key: bytes, plaintext: bytes, aad: bytes = b"",
-                 inner: str = "aes-256-gcm") -> bytes:
+                 inner: str = "aes-256-gcm", *,
+                 inner_nonce: bytes | None = None, outer_nonce: bytes | None = None) -> bytes:
     """Encrypt under two independent locks: the vetted inner vault, then the chaos outer wall.
 
     `aad` is bound to BOTH locks (defense in depth — both layers authenticate the context). `inner`
     selects the vetted cipher ("aes-256-gcm" default, or "chacha20-poly1305"). Returns the outer
     chaos blob; each call uses fresh random nonces in both layers, so the same plaintext seals
-    differently every time."""
+    differently every time.
+
+    `inner_nonce` / `outer_nonce` are keyword-only and exist ONLY to pin the two sources of
+    nondeterminism for a known-answer test / Rust parity vector (mirrors aead.seal's `nonce=` and
+    streaming.seal_stream's `salt=`). Leave them None in real use — fresh random nonces are the safe
+    default; reusing a nonce across two different plaintexts breaks the vetted vault."""
     try:
         alg = _INNER_BY_NAME[inner]
     except KeyError:
@@ -114,13 +120,17 @@ def seal_twolock(master_key: bytes, plaintext: bytes, aad: bytes = b"",
 
     k_outer, k_inner = _derive_keys(master_key)
 
-    # INNER vault: real, vetted AEAD with its own fresh nonce.
-    inner_nonce = os.urandom(INNER_NONCE_LEN)
+    # INNER vault: real, vetted AEAD with its own fresh nonce (pinned only for a KAT).
+    if inner_nonce is None:
+        inner_nonce = os.urandom(INNER_NONCE_LEN)
+    elif len(inner_nonce) != INNER_NONCE_LEN:
+        raise ValueError(f"inner_nonce must be exactly {INNER_NONCE_LEN} bytes")
     inner_ct = _INNER_BY_ID[alg](k_inner).encrypt(inner_nonce, plaintext, aad)
     inner_blob = bytes([alg]) + inner_nonce + inner_ct
 
-    # OUTER wall: our chaos AEAD wraps the whole inner blob (and binds the same aad again).
-    return _outer.seal(k_outer, inner_blob, aad=aad)
+    # OUTER wall: our chaos AEAD wraps the whole inner blob (and binds the same aad again). The outer
+    # nonce, when pinned, is forwarded to aead.seal's own KAT hook; None there means a fresh random one.
+    return _outer.seal(k_outer, inner_blob, aad=aad, nonce=outer_nonce)
 
 
 def open_twolock(master_key: bytes, blob: bytes, aad: bytes = b"") -> bytes:
