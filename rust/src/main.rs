@@ -9,9 +9,10 @@
 use std::time::Instant;
 
 use chaos_core::{
-    aead_open, aead_seal, stream_open, stream_seal, twolock_open, twolock_seal, ChaosEngine,
-    MultiMapEngine, RatchetAeadReceiver, RatchetAeadSender, RatchetEngine, DEFAULT_N_MAPS,
-    TWOLOCK_AES, TWOLOCK_CHACHA,
+    aead_open, aead_seal, dh_public, dh_raw_shared, dh_shared_key, hybrid_combine,
+    hybrid_initiator_key, hybrid_respond, mlkem_decapsulate, mlkem_ek_from_seed, mlkem_encapsulate,
+    stream_open, stream_seal, twolock_open, twolock_seal, ChaosEngine, MultiMapEngine,
+    RatchetAeadReceiver, RatchetAeadSender, RatchetEngine, DEFAULT_N_MAPS, TWOLOCK_AES, TWOLOCK_CHACHA,
 };
 
 /// Parse a hex byte string (e.g. the KAT key/nonce material) into raw bytes.
@@ -209,6 +210,100 @@ fn main() {
                 None => println!("INVALID"),
             }
         }
+        "dh_public" => {
+            // chaos_core dh_public <private_hex>  -> g^private mod p as 256-byte hex (or INVALID)
+            let private = parse_hex_bytes(&args[2]);
+            match dh_public(&private) {
+                Some(p) => println!("{}", hex_of(&p)),
+                None => println!("INVALID"),
+            }
+        }
+        "dh_raw_shared" => {
+            // chaos_core dh_raw_shared <private_hex> <peer_public_hex>  -> raw g^(ab) 256-byte hex or INVALID
+            let private = parse_hex_bytes(&args[2]);
+            let peer = parse_hex_bytes(&args[3]);
+            match dh_raw_shared(&private, &peer) {
+                Some(s) => println!("{}", hex_of(&s)),
+                None => println!("INVALID"),
+            }
+        }
+        "dh_shared_key" => {
+            // chaos_core dh_shared_key <private_hex> <peer_public_hex> <info_hex>  -> 32-byte key hex or INVALID
+            let private = parse_hex_bytes(&args[2]);
+            let peer = parse_hex_bytes(&args[3]);
+            let info = parse_hex_bytes(&args[4]);
+            match dh_shared_key(&private, &peer, &info) {
+                Some(k) => println!("{}", hex_of(&k)),
+                None => println!("INVALID"),
+            }
+        }
+        "mlkem_ek" => {
+            // chaos_core mlkem_ek <seed_hex>  -> 1184-byte encapsulation key hex (or INVALID)
+            let seed = parse_hex_bytes(&args[2]);
+            match mlkem_ek_from_seed(&seed) {
+                Some(ek) => println!("{}", hex_of(&ek)),
+                None => println!("INVALID"),
+            }
+        }
+        "mlkem_encapsulate" => {
+            // chaos_core mlkem_encapsulate <ek_hex> <m_hex>  -> "<ct_hex> <ss_hex>" or INVALID
+            let ek = parse_hex_bytes(&args[2]);
+            let m = parse_hex_bytes(&args[3]);
+            match mlkem_encapsulate(&ek, &m) {
+                Some((ct, ss)) => println!("{} {}", hex_of(&ct), hex_of(&ss)),
+                None => println!("INVALID"),
+            }
+        }
+        "mlkem_decapsulate" => {
+            // chaos_core mlkem_decapsulate <seed_hex> <ct_hex>  -> 32-byte shared secret hex or INVALID
+            let seed = parse_hex_bytes(&args[2]);
+            let ct = parse_hex_bytes(&args[3]);
+            match mlkem_decapsulate(&seed, &ct) {
+                Some(ss) => println!("{}", hex_of(&ss)),
+                None => println!("INVALID"),
+            }
+        }
+        "hybrid_combine" => {
+            // chaos_core hybrid_combine <classical_hex> <pq_hex> <info_hex> <dh_a_hex> <dh_b_hex>
+            //     <kem_pk_a_hex> <kem_ct_hex>  -> 32-byte hybrid session key hex
+            let classical = parse_hex_bytes(&args[2]);
+            let pq = parse_hex_bytes(&args[3]);
+            let info = parse_hex_bytes(&args[4]);
+            let dh_a = parse_hex_bytes(&args[5]);
+            let dh_b = parse_hex_bytes(&args[6]);
+            let kem_pk_a = parse_hex_bytes(&args[7]);
+            let kem_ct = parse_hex_bytes(&args[8]);
+            let key = hybrid_combine(&classical, &pq, &info, &dh_a, &dh_b, &kem_pk_a, &kem_ct);
+            println!("{}", hex_of(&key));
+        }
+        "hybrid_respond" => {
+            // chaos_core hybrid_respond <dh_private_b_hex> <dh_peer_a_hex> <kem_pk_a_hex> <m_hex> <info_hex>
+            //     -> "<dh_b_public_hex> <kem_ct_hex> <key_hex>" or INVALID
+            let dh_private_b = parse_hex_bytes(&args[2]);
+            let dh_peer_a = parse_hex_bytes(&args[3]);
+            let kem_pk_a = parse_hex_bytes(&args[4]);
+            let m = parse_hex_bytes(&args[5]);
+            let info = parse_hex_bytes(&args[6]);
+            match hybrid_respond(&dh_private_b, &dh_peer_a, &kem_pk_a, &m, &info) {
+                Some((dh_b, ct, key)) => {
+                    println!("{} {} {}", hex_of(&dh_b), hex_of(&ct), hex_of(&key))
+                }
+                None => println!("INVALID"),
+            }
+        }
+        "hybrid_initiator_key" => {
+            // chaos_core hybrid_initiator_key <dh_private_a_hex> <kem_seed_hex> <dh_peer_b_hex>
+            //     <kem_ct_hex> <info_hex>  -> 32-byte session key hex or INVALID
+            let dh_private_a = parse_hex_bytes(&args[2]);
+            let kem_seed = parse_hex_bytes(&args[3]);
+            let dh_peer_b = parse_hex_bytes(&args[4]);
+            let kem_ct = parse_hex_bytes(&args[5]);
+            let info = parse_hex_bytes(&args[6]);
+            match hybrid_initiator_key(&dh_private_a, &kem_seed, &dh_peer_b, &kem_ct, &info) {
+                Some(k) => println!("{}", hex_of(&k)),
+                None => println!("INVALID"),
+            }
+        }
         "benchmm" => {
             // chaos_core benchmm <n_maps> <mbytes>  -> throughput of the REAL shipped combiner.
             let n_maps: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(DEFAULT_N_MAPS);
@@ -320,6 +415,15 @@ fn main() {
             eprintln!("       chaos_core ratchet_aead_open <master_hex> <nonce_hex> <aad_hex> <n_maps> <wire_hex>...");
             eprintln!("       chaos_core twolock_seal <master_hex> <outer_nonce_hex> <inner_nonce_hex> <aad_hex> <pt_hex> <inner_alg> <n_maps>");
             eprintln!("       chaos_core twolock_open <master_hex> <aad_hex> <blob_hex> <n_maps>");
+            eprintln!("       chaos_core dh_public <private_hex>");
+            eprintln!("       chaos_core dh_raw_shared <private_hex> <peer_public_hex>");
+            eprintln!("       chaos_core dh_shared_key <private_hex> <peer_public_hex> <info_hex>");
+            eprintln!("       chaos_core mlkem_ek <seed_hex>");
+            eprintln!("       chaos_core mlkem_encapsulate <ek_hex> <m_hex>");
+            eprintln!("       chaos_core mlkem_decapsulate <seed_hex> <ct_hex>");
+            eprintln!("       chaos_core hybrid_combine <classical_hex> <pq_hex> <info_hex> <dh_a_hex> <dh_b_hex> <kem_pk_a_hex> <kem_ct_hex>");
+            eprintln!("       chaos_core hybrid_respond <dh_private_b_hex> <dh_peer_a_hex> <kem_pk_a_hex> <m_hex> <info_hex>");
+            eprintln!("       chaos_core hybrid_initiator_key <dh_private_a_hex> <kem_seed_hex> <dh_peer_b_hex> <kem_ct_hex> <info_hex>");
             eprintln!("       chaos_core bench <mbytes>");
             eprintln!("       chaos_core benchmm <n_maps> <mbytes>");
             eprintln!("       chaos_core timing <keys>");

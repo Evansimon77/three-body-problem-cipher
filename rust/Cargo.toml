@@ -35,6 +35,14 @@ zeroize = "1"
 hkdf = "0.12"             # HKDF-SHA256 key split (outer-wall key vs inner-vault key); RFC 5869, salt=None.
 aes-gcm = "0.10"          # AES-256-GCM inner vault (default). 96-bit nonce, 128-bit tag — matches Python.
 chacha20poly1305 = "0.10" # ChaCha20-Poly1305 inner vault (alt). Self-describing alg byte selects it.
+# --- Phase 8.5 key agreement: the VETTED post-quantum half of the hybrid handshake. The classical
+# half is plain finite-field Diffie-Hellman over the 2048-bit RFC 3526 prime, which reuses the existing
+# `ruint` big-int (no new crate) and is byte-identical to Python's `pow`. The post-quantum half is
+# ML-KEM-768 (FIPS 203) from RustCrypto — proven to produce the SAME keys as Python's OpenSSL 3.5 backend
+# (same seed -> same encapsulation key; cross-decapsulation matches). Default features only (NO getrandom):
+# the core stays fully deterministic, the caller owns all randomness (seed + encaps message), so the KAT
+# can pin it — the same discipline as twolock's explicit nonces. `zeroize` wipes the decapsulation key.
+ml-kem = { version = "0.3.2", features = ["zeroize"] }
 
 [profile.release]
 opt-level = 3

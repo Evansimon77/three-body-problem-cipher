@@ -266,3 +266,110 @@ def test_python_opens_rust_sealed_twolock():
         opened = open_twolock(bytes.fromhex(c["master"]), rust_blob, aad=bytes.fromhex(c["aad"]))
         assert opened == bytes.fromhex(c["plaintext"]), \
             f"Python could not open the Rust-sealed two-locks blob ({alg})."
+
+
+# --- Phase 8.5 key agreement: classical DH + post-quantum hybrid ---
+
+try:
+    from cryptography.hazmat.primitives.asymmetric import mlkem as _mlkem  # noqa: E402
+    _HAVE_MLKEM = True
+except Exception:                                    # pragma: no cover - platform dependent
+    _HAVE_MLKEM = False
+
+_needs_mlkem = pytest.mark.skipif(
+    not _HAVE_MLKEM, reason="ML-KEM backend (cryptography on OpenSSL 3.5+) unavailable"
+)
+
+
+def test_rust_matches_kat_dh():
+    """Classical DH (Phase 8.5): Rust reproduces the frozen public values, the raw shared element, and the
+    SHA-512-derived key for BOTH parties — proves the 2048-bit modular exponentiation and KDF match Python."""
+    c = _frozen("keyexchange")
+    assert _rust("dh_public", c["private_a"]) == c["public_a"]
+    assert _rust("dh_public", c["private_b"]) == c["public_b"]
+    # both directions of the exchange land on the same raw secret and the same derived key
+    assert _rust("dh_raw_shared", c["private_a"], c["public_b"]) == c["raw_shared"]
+    assert _rust("dh_raw_shared", c["private_b"], c["public_a"]) == c["raw_shared"]
+    assert _rust("dh_shared_key", c["private_a"], c["public_b"], c["info"]) == c["shared_key"]
+    assert _rust("dh_shared_key", c["private_b"], c["public_a"], c["info"]) == c["shared_key"]
+
+
+def test_rust_matches_kat_mlkem_decapsulate():
+    """ML-KEM-768 (Phase 8.5): Rust regenerates the encapsulation key from the frozen seed and decapsulates
+    the frozen ciphertext to the frozen secret — proves RustCrypto's `ml-kem` matches the pinned vector
+    (and, via the generator's self-check, OpenSSL). No Python ML-KEM backend needed here."""
+    c = _frozen("pq_hybrid")
+    assert _rust("mlkem_ek", c["seed"]) == c["ek"]
+    assert _rust("mlkem_decapsulate", c["seed"], c["ct"]) == c["pq_secret"]
+
+
+def test_rust_matches_kat_hybrid_combine():
+    """Hybrid combiner (Phase 8.5): Rust's SP 800-56C combiner over the frozen (classical, pq, info,
+    transcript) reproduces the frozen session key byte-for-byte — proves the transcript build + the
+    length-prefixed SHA-512 mix match pq_keyexchange.py. Pure hashing, no ML-KEM backend needed."""
+    c = _frozen("pq_hybrid")
+    got = _rust("hybrid_combine", c["classical"], c["pq_secret"], c["info"],
+                c["dh_a"], c["dh_b"], c["ek"], c["ct"])
+    assert got == c["key"], "Rust hybrid_combine diverged from the frozen KAT key."
+
+
+@_needs_mlkem
+def test_rust_python_mlkem_interop_both_ways():
+    """Real ML-KEM interop: Rust encapsulates against a Python key and Python decapsulates to the same
+    secret, and vice versa. This is what proves RustCrypto and OpenSSL are wire-compatible, not just
+    each self-consistent."""
+    import os
+    # Rust encapsulates -> Python decapsulates
+    seed = os.urandom(64)
+    py_sk = _mlkem.MLKEM768PrivateKey.from_seed_bytes(seed)
+    ek = py_sk.public_key().public_bytes_raw()
+    m = os.urandom(32)
+    ct_hex, ss_rust = _rust("mlkem_encapsulate", ek.hex(), m.hex()).split()
+    assert py_sk.decapsulate(bytes.fromhex(ct_hex)).hex() == ss_rust
+
+    # Python encapsulates -> Rust decapsulates
+    ss_py, ct_py = py_sk.public_key().encapsulate()
+    assert _rust("mlkem_decapsulate", seed.hex(), ct_py.hex()) == ss_py.hex()
+
+
+@_needs_mlkem
+def test_rust_python_hybrid_handshake_both_ways():
+    """Real hybrid-handshake interop: a Rust responder agrees the same session key with a Python initiator,
+    and a Python responder agrees with a Rust initiator. Proves the full classical+PQ handshake (DH,
+    ML-KEM, transcript, combiner) is wire-compatible end to end across the two implementations."""
+    import os
+    import sys
+    sys.path.insert(0, _ROOT)
+    from keyexchange import P, DHParty  # noqa: E402
+    from pq_keyexchange import _combine, _transcript  # noqa: E402
+
+    info = b"interop"
+
+    # --- Rust RESPONDER  <->  Python INITIATOR ---
+    a = int.from_bytes(os.urandom(32), "big")
+    seed = os.urandom(64)
+    dh_a = DHParty(a)
+    py_sk = _mlkem.MLKEM768PrivateKey.from_seed_bytes(seed)
+    kem_pk = py_sk.public_key().public_bytes_raw()
+    b = int.from_bytes(os.urandom(32), "big")
+    m = os.urandom(32)
+    dh_b_hex, ct_hex, key_b = _rust("hybrid_respond", format(b, "064x"),
+                                    format(dh_a.public, "0512x"), kem_pk.hex(), m.hex(), info.hex()).split()
+    classical = dh_a.raw_shared_secret(int(dh_b_hex, 16))
+    pq = py_sk.decapsulate(bytes.fromhex(ct_hex))
+    tr = _transcript(dh_a.public, int(dh_b_hex, 16), kem_pk, bytes.fromhex(ct_hex))
+    key_a = _combine(classical, pq, tr, info).hex()
+    assert key_a == key_b, "Rust responder and Python initiator disagreed."
+
+    # --- Python RESPONDER  <->  Rust INITIATOR ---
+    a2 = int.from_bytes(os.urandom(32), "big")
+    seed2 = os.urandom(64)
+    dh_a2 = pow(2, a2, P)
+    kem_pk2 = _mlkem.MLKEM768PrivateKey.from_seed_bytes(seed2).public_key().public_bytes_raw()
+    dh_b2 = DHParty(int.from_bytes(os.urandom(32), "big"))
+    classical2 = dh_b2.raw_shared_secret(dh_a2)
+    pq2, ct2 = _mlkem.MLKEM768PublicKey.from_public_bytes(kem_pk2).encapsulate()
+    key_b2 = _combine(classical2, pq2, _transcript(dh_a2, dh_b2.public, kem_pk2, ct2), info).hex()
+    key_a2 = _rust("hybrid_initiator_key", format(a2, "064x"), seed2.hex(),
+                   format(dh_b2.public, "0512x"), ct2.hex(), info.hex())
+    assert key_a2 == key_b2, "Python responder and Rust initiator disagreed."
