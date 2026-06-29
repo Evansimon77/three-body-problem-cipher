@@ -258,6 +258,17 @@ speed-benchmark baselines (AES-256-CTR, ChaCha20). Optional `ent`/`dieharder` vi
 
 ## Recent Work
 
+### ✅ DONE 2026-06-29: Official name — "Three-Body Problem Cipher" (short handle 3BP)
+> Branch `phase6-two-locks`, commit `2dc2ecf`. Renamed from the generic "Chaos Cipher" to a name with
+> instant recognition (chosen via identity naming method + marketing borrowed-recognition lens): the full
+> famous phrase beats a fragment because the brain recognises the whole familiar chunk. Name system =
+> display **Three-Body Problem Cipher** · handle **3BP** · tagline "Encryption built on the problem no one
+> can solve." `scorecard.html` retitled + tagline + all comparison labels/footer updated; "chaos" kept
+> only as a description of the math. Domains free (threebodyproblemcipher.com, threebodycipher.com/.io,
+> 3bpcipher.com); no trademark conflict. **Honest caveat:** the three-body-cipher concept exists in
+> academic papers (IACR ePrint 2021/542) → present as an independent build of a known idea, not a first.
+> Repo/folder still `chaos-cipher` (not renamed; bigger change, only if asked). No code/keystream touched.
+
 ### ✅ DONE 2026-06-29: Reworked `scorecard.html` into a non-technical client DEMO
 > Branch `phase6-two-locks`, commit `0bbb67c`. Same page, retargeted at the people who'll hire Evan (mostly
 > non-technical — that's WHY they hire him), so plain English leads and technical detail is secondary.
