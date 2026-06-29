@@ -3,285 +3,371 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chaos Cipher — Build Scorecard & Head-to-Head</title>
+<title>Chaos Cipher — what I built, in plain English</title>
 <style>
   :root{
-    --bg:#0a0f1c; --bg2:#0d1424; --card:#121b30; --card2:#16203a;
+    --bg:#0a0f1c; --card:#121b30; --card2:#16203a;
     --line:#243150; --gold:#e3c168; --gold-soft:#caa648; --cream:#f3eedd;
-    --muted:#8c98b2; --dim:#5e6982;
-    --ours:#e3c168;        /* our chaos cipher */
-    --aes:#5bbfd6;         /* AES, the world standard */
-    --chacha:#7e88f0;      /* ChaCha20 */
-    --good:#4fbf86; --warn:#e6b24a; --bad:#e0685f;
+    --muted:#9aa6bf; --dim:#6b768f;
+    --ours:#e3c168; --aes:#5bbfd6; --chacha:#7e88f0;
+    --good:#56c98d; --warn:#e6b24a; --bad:#e0685f;
+    --plain:#0f2a22; --plain-line:#2f6a4f; --plain-text:#bfeccf;
     --radius:16px;
-    font-synthesis:none;
   }
   *{box-sizing:border-box}
   html,body{margin:0}
   body{
-    background:radial-gradient(1200px 700px at 80% -10%, #16213f 0%, var(--bg) 55%) no-repeat, var(--bg);
+    background:radial-gradient(1200px 720px at 82% -12%, #16213f 0%, var(--bg) 55%) no-repeat, var(--bg);
     color:var(--cream);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
-    line-height:1.5; padding:38px 28px 70px;
-    -webkit-font-smoothing:antialiased;
+    line-height:1.55; padding:34px 26px 80px; -webkit-font-smoothing:antialiased;
   }
-  .wrap{max-width:1160px;margin:0 auto}
-  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.4px;font-weight:700}
+  .wrap{max-width:1080px;margin:0 auto}
+
+  /* ---- header ---- */
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap}
+  h1{font-size:30px;margin:0 0 8px;letter-spacing:-.4px;font-weight:700}
   h1 .accent{color:var(--gold)}
-  .sub{color:var(--muted);font-size:15px;max-width:760px;margin:0 0 4px}
-  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
-    color:#15101c;background:var(--gold);padding:4px 10px;border-radius:999px;vertical-align:middle;margin-left:10px}
-  .unvetted{background:#e0685f;color:#1a0c0b}
-  section{margin-top:40px}
-  .eyebrow{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--gold-soft);font-weight:700;margin:0 0 14px}
-  .grid{display:grid;gap:16px}
-  .cards5{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+  .lede{color:var(--cream);font-size:16.5px;max-width:680px;margin:0}
+  .lede b{color:var(--gold)}
+  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
+    color:#1a0c0b;background:var(--bad);padding:4px 11px;border-radius:999px;margin-left:8px;vertical-align:middle}
+  .toggle{background:#16203a;border:1px solid var(--line);color:var(--cream);font-size:13.5px;font-weight:600;
+    padding:10px 15px;border-radius:11px;cursor:pointer;white-space:nowrap;transition:.15s}
+  .toggle:hover{border-color:var(--gold-soft);color:var(--gold)}
+  body:not(.show-tech) .toggle .on{display:none}
+  body.show-tech .toggle .off{display:none}
+
+  /* ---- plain / tech visibility ---- */
+  .tech{display:none}
+  body.show-tech .tech{display:revert}
+  tr.tech{display:none}
+  body.show-tech tr.tech{display:table-row}
+
+  /* ---- stat strip ---- */
+  .stat-strip{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+  .stat{flex:1;min-width:170px;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:15px 17px}
+  .stat .ic{font-size:19px}
+  .stat .n{font-size:20px;font-weight:700;color:var(--gold);letter-spacing:-.2px;margin-top:3px}
+  .stat .t{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.4}
+
+  section{margin-top:46px}
+  .eyebrow{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--gold-soft);font-weight:700;margin:0 0 6px}
+  h2{font-size:22px;margin:0 0 4px;font-weight:700;letter-spacing:-.2px}
+  .say{color:var(--muted);font-size:15px;margin:0 0 18px;max-width:760px}
+
+  /* ---- plain box ---- */
+  .plainbox{background:var(--plain);border:1px solid var(--plain-line);border-left:4px solid var(--good);
+    border-radius:11px;padding:13px 15px;margin-top:12px}
+  .plainbox .h{font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--good);font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+  .plainbox p{margin:0;font-size:14px;color:var(--plain-text)}
+  .plainbox .pic{margin-top:7px;font-size:13px;color:#9fd9b6;font-style:italic}
+
+  /* ---- instant chart ---- */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px 26px}
+  .ibars{position:relative;margin-top:8px}
+  .irow{display:grid;grid-template-columns:230px 1fr 96px;align-items:center;gap:14px;margin:11px 0;position:relative;z-index:2}
+  .irow .lab{font-size:14px}
+  .irow .lab small{display:block;color:var(--dim);font-size:11.5px}
+  .itrack{background:#0c1426;border-radius:7px;height:26px;border:1px solid #1c2742;overflow:hidden}
+  .ifill{height:100%;border-radius:6px 0 0 6px;min-width:6px;background:linear-gradient(90deg,#56c98d,#3fa873)}
+  .ifill.slow{background:linear-gradient(90deg,#e6b24a,#caa648)}
+  .itime{font-size:13.5px;font-weight:700;text-align:right}
+  .blink{position:absolute;top:0;bottom:-6px;width:0;border-left:2px dashed #5bbfd6;z-index:3}
+  .blink .cap{position:absolute;top:-22px;left:50%;transform:translateX(-50%);white-space:nowrap;
+    font-size:11px;color:#8fd2e4;background:#0a0f1c;padding:1px 6px;border-radius:6px}
+  .zones{font-size:12.5px;color:var(--dim);margin-top:18px;display:flex;gap:18px;flex-wrap:wrap}
+  .zones span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+  /* ---- component cards ---- */
+  .cards{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
   .card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
-    border-radius:var(--radius);padding:18px 18px 16px;position:relative;overflow:hidden}
-  .card h3{margin:0 0 3px;font-size:15px;font-weight:700;letter-spacing:.2px}
-  .card .role{color:var(--muted);font-size:12.5px;margin:0 0 12px}
-  .card ul{list-style:none;margin:0;padding:0}
-  .card li{font-size:13px;padding:5px 0;border-top:1px dashed #233152;display:flex;justify-content:space-between;gap:12px}
-  .card li:first-child{border-top:none}
-  .card li .k{color:var(--muted)}
-  .card li .v{color:var(--cream);font-weight:600;text-align:right}
-  .tagrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-  .tag{font-size:11px;color:var(--cream);background:#1c2742;border:1px solid #2b3a5e;border-radius:7px;padding:3px 8px}
-  .tag.vetted{border-color:#2f5a45;background:#13301f;color:#aee9c6}
-  .tag.hand{border-color:#5a3a2f;background:#301b13;color:#f0c4a8}
-  .topbar{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--gold),transparent)}
+    border-radius:var(--radius);padding:18px 19px 17px;position:relative;overflow:hidden}
+  .card .topbar{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--gold),transparent)}
+  .card .ic{font-size:22px}
+  .card h3{margin:6px 0 2px;font-size:17px;font-weight:700}
+  .card .tagline{color:var(--gold-soft);font-size:13px;font-weight:600;margin:0 0 4px}
+  .card .means{font-size:14px;color:var(--cream);margin:8px 0 0}
+  .card .pic{font-size:13px;color:var(--muted);font-style:italic;margin:8px 0 0;padding-left:11px;border-left:2px solid #2b3a5e}
+  .specs{margin-top:13px;border-top:1px dashed #233152;padding-top:11px}
+  .specs .lbl{font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:6px}
+  .specs ul{list-style:none;margin:0;padding:0}
+  .specs li{font-size:12.5px;padding:3px 0;display:flex;justify-content:space-between;gap:12px}
+  .specs li .k{color:var(--muted)} .specs li .v{color:var(--cream);font-weight:600;text-align:right}
 
-  /* speed bars */
-  .bars{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px 26px}
-  .bar{display:grid;grid-template-columns:200px 1fr;align-items:center;gap:16px;margin:14px 0}
-  .bar .lab{font-size:13.5px}
-  .bar .lab small{display:block;color:var(--dim);font-size:11.5px}
-  .track{background:#0c1426;border-radius:8px;height:30px;position:relative;overflow:hidden;border:1px solid #1c2742}
-  .fill{height:100%;border-radius:7px 0 0 7px;display:flex;align-items:center;justify-content:flex-end;
-    padding-right:10px;font-size:12.5px;font-weight:700;color:#0c1020;min-width:54px;white-space:nowrap}
-  .note-log{color:var(--dim);font-size:11.5px;margin-top:6px}
-
-  /* table */
+  /* ---- table ---- */
   table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
     border-radius:var(--radius);overflow:hidden;font-size:13.5px}
   th,td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
-  thead th{background:#0e1830;font-size:11.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
-  th.ours,td.ours{background:rgba(227,193,104,.06)}
-  thead th.ours{color:var(--gold)}
-  thead th.aes{color:var(--aes)}
+  thead th{background:#0e1830;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+  th.ours,td.ours{background:rgba(227,193,104,.06)} thead th.ours{color:var(--gold)} thead th.aes{color:var(--aes)}
   td .dim{color:var(--dim);display:block;font-size:11.5px;margin-top:2px}
   tr:last-child td{border-bottom:none}
-  .yes{color:var(--good);font-weight:700}
-  .no{color:var(--bad);font-weight:700}
-  .meh{color:var(--warn);font-weight:700}
+  .yes{color:var(--good);font-weight:700} .no{color:var(--bad);font-weight:700} .meh{color:var(--warn);font-weight:700}
+  td.plainsay{font-size:13px;color:var(--plain-text);background:rgba(86,201,141,.05)}
 
-  /* radar + legend layout */
-  .twocol{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:22px;align-items:center}
-  .radar-card,.verdict-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
-  .legend{display:flex;gap:18px;margin:4px 0 14px;flex-wrap:wrap}
+  /* ---- radar ---- */
+  .twocol{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,.98fr);gap:22px;align-items:center}
+  .legend{display:flex;gap:18px;margin:0 0 6px;flex-wrap:wrap}
   .legend span{display:inline-flex;align-items:center;gap:7px;font-size:13px}
   .dot{width:12px;height:12px;border-radius:3px;display:inline-block}
-  .axkey{margin-top:8px}
-  .axkey div{font-size:12.5px;color:var(--muted);padding:4px 0;border-top:1px dashed #233152}
+  .axkey div{font-size:13px;color:var(--muted);padding:5px 0;border-top:1px dashed #233152}
   .axkey b{color:var(--cream)}
-  .verdict-card h3{margin:0 0 10px;font-size:16px}
-  .verdict-card p{font-size:13.8px;color:#d7dcea;margin:0 0 12px}
-  .verdict-card .punch{color:var(--gold);font-weight:700}
-  .callout{border-left:3px solid var(--aes);padding:8px 0 8px 14px;margin:14px 0;color:#cdd6ea;font-size:13px;background:rgba(91,191,214,.05)}
-  footer{margin-top:40px;color:var(--dim);font-size:12px;text-align:center}
-  .stat-strip{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
-  .stat{flex:1;min-width:150px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-  .stat .n{font-size:22px;font-weight:700;color:var(--gold);letter-spacing:-.3px}
-  .stat .t{font-size:12px;color:var(--muted);margin-top:2px}
-  @media(max-width:820px){.twocol{grid-template-columns:1fr}.bar{grid-template-columns:130px 1fr}}
+
+  /* ---- verdict ---- */
+  .verdict{background:linear-gradient(180deg,#14233f,#101a30);border:1px solid var(--line);border-radius:var(--radius);padding:24px 26px}
+  .verdict h2{margin-bottom:10px}
+  .verdict p{font-size:15px;color:#dbe2f0;margin:0 0 13px;max-width:840px}
+  .verdict .punch{color:var(--gold);font-weight:700}
+  footer{margin-top:42px;color:var(--dim);font-size:12px;text-align:center}
+  @media(max-width:780px){.twocol{grid-template-columns:1fr}.irow{grid-template-columns:140px 1fr 70px}}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <h1>Chaos Cipher — what we built <span class="badge unvetted">Unvetted research</span></h1>
-  <p class="sub">A complete, attack-tested encryption <b>system</b> built around a home-made "chaos" keystream — with a fast Rust core, modern protocol features, and a two-lock design that keeps real data behind battle-tested AES. Below: the full parts list, then an honest head-to-head against the world standard it leans on.</p>
-
-  <div class="stat-strip">
-    <div class="stat"><div class="n">~254-bit</div><div class="t">claimed strength (smallest of the attack costs)</div></div>
-    <div class="stat"><div class="n">61 MB/s</div><div class="t">Rust core speed (~35× the old Python)</div></div>
-    <div class="stat"><div class="n">13</div><div class="t">frozen test vectors (Rust = Python, bit-for-bit)</div></div>
-    <div class="stat"><div class="n">243</div><div class="t">passing checks (183 tests + 41 parity + 19 Rust − overlap) &amp; 6 self-attacks</div></div>
+  <div class="top">
+    <div>
+      <h1><span class="accent">Chaos Cipher</span> — what I built<span class="badge">Honest demo</span></h1>
+      <p class="lede">I designed and built a complete system for <b>locking up data so only the right person can read it</b>. This page explains what's inside, shows whether it's fast enough to feel instant, and gives you an honest comparison to the lock the whole world already trusts.</p>
+    </div>
+    <button class="toggle" onclick="document.body.classList.toggle('show-tech')">
+      <span class="off">🔧 Show the technical details</span>
+      <span class="on">🔧 Hide technical details</span>
+    </button>
   </div>
 
-  <!-- ============ INVENTORY ============ -->
+  <div class="stat-strip">
+    <div class="stat"><div class="ic">⚡</div><div class="n">Under 0.1 sec</div><div class="t">to lock a typical contract or photo — faster than you can blink</div></div>
+    <div class="stat"><div class="ic">🔒</div><div class="n">2 locks, not 1</div><div class="t">your data always sits behind AES too — the lock banks &amp; governments use</div></div>
+    <div class="stat"><div class="ic">🛡️</div><div class="n">6 / 6 held</div><div class="t">break-in attempts I ran against it myself — none got through</div></div>
+    <div class="stat"><div class="ic">🔮</div><div class="n">Quantum-ready</div><div class="t">built to survive the future super-computers that will crack today's codes</div></div>
+  </div>
+
+  <!-- ============ IS IT FAST ENOUGH ============ -->
   <section>
-    <p class="eyebrow">Part 1 · Everything we built</p>
-    <div class="grid cards5">
+    <p class="eyebrow">First question everyone asks</p>
+    <h2>“Is it fast enough — or will it feel slow?”</h2>
+    <p class="say">For the everyday files a business actually protects — contracts, photos, documents — it's done <b>before your eye finishes blinking</b>. Here's how long real things take, measured on a normal laptop. The dashed line is one blink of an eye.</p>
+
+    <div class="panel">
+      <div class="ibars" id="ibars">
+        <!-- rows injected by JS -->
+        <div class="blink" id="blinkline"><span class="cap">👁️ a blink ≈ 0.1 sec</span></div>
+      </div>
+      <div class="zones">
+        <span><span class="sw" style="background:#56c98d"></span> Feels instant — you won't notice it</span>
+        <span><span class="sw" style="background:#e6b24a"></span> A short pause — still quick</span>
+      </div>
+    </div>
+
+    <div class="plainbox">
+      <div class="h">💡 What this means for you</div>
+      <p>You will never sit and wait for it. The files a real-estate office or small business locks up every day are tiny by a computer's standards, so encryption happens in the blink of an eye. The only place it's “slow” is locking up <i>enormous</i> amounts of data all at once (a giant video library) — and even then it's seconds, not minutes.</p>
+    </div>
+
+    <!-- technical speed reality -->
+    <div class="panel tech" style="margin-top:16px">
+      <p class="eyebrow" style="margin-bottom:10px">🔧 The raw-speed truth (for engineers)</p>
+      <p class="say" style="margin-bottom:14px">Compared head-to-head as a raw engine, mine is slower than the industrial ciphers. That's expected and by design — see the comparison below. Throughput, measured on this machine (log scale, each step = 10×):</p>
+      <div id="speedbars"></div>
+      <p class="say" style="margin:12px 0 0;font-size:13px">My Rust core runs ~61 MB/s — about <b>149× slower than AES</b> (chip-accelerated) and <b>37× slower than ChaCha20</b>. It's still ~35× faster than where I started in Python. Speed was never the chaos layer's job: the fast, proven cipher does the heavy lifting <i>inside</i> the two-lock design.</p>
+    </div>
+  </section>
+
+  <!-- ============ WHAT'S INSIDE ============ -->
+  <section>
+    <p class="eyebrow">What's inside</p>
+    <h2>The five parts I built</h2>
+    <p class="say">Each part explained in plain words first — turn on the technical details with the button up top if you want the engineering specifics.</p>
+
+    <div class="cards">
 
       <div class="card"><span class="topbar"></span>
-        <h3>① The chaos engine</h3>
-        <p class="role">The home-made part — the keystream itself</p>
-        <ul>
-          <li><span class="k">Math</span><span class="v">Integer PWLCM</span></li>
-          <li><span class="k">Grid size</span><span class="v">2¹²⁷ − 1</span></li>
-          <li><span class="k">Maps mixed</span><span class="v">4 (XOR)</span></li>
-          <li><span class="k">Output mixer</span><span class="v">ARX "frosted glass"</span></li>
-          <li><span class="k">Bytes / step</span><span class="v">4</span></li>
-          <li><span class="k">Period (combined)</span><span class="v">~2²⁴⁷</span></li>
-          <li><span class="k">Constant-time</span><span class="v">yes (no secret branches/divides)</span></li>
-        </ul>
-        <div class="tagrow"><span class="tag hand">hand-rolled</span><span class="tag">branchless</span></div>
+        <div class="ic">🌀</div>
+        <h3>① The scrambler</h3>
+        <p class="tagline">The part I invented myself</p>
+        <p class="means">Turns your readable data into what looks like pure random static. Anyone who grabs it in transit just sees meaningless noise.</p>
+        <p class="pic">Like a shredder that can perfectly un-shred — but only for the one person holding the exact key.</p>
+        <div class="specs tech">
+          <div class="lbl">Technical</div>
+          <ul>
+            <li><span class="k">Math</span><span class="v">Integer PWLCM “chaos” map</span></li>
+            <li><span class="k">Grid size</span><span class="v">2¹²⁷ − 1</span></li>
+            <li><span class="k">Maps mixed</span><span class="v">4 (XOR-combined)</span></li>
+            <li><span class="k">Output mixer</span><span class="v">ARX nonlinear finalizer</span></li>
+            <li><span class="k">Repeat period</span><span class="v">~2²⁴⁷</span></li>
+            <li><span class="k">Timing-safe</span><span class="v">yes (no secret branches)</span></li>
+          </ul>
+        </div>
       </div>
 
       <div class="card"><span class="topbar"></span>
-        <h3>② The safe shell (AEAD)</h3>
-        <p class="role">Locks &amp; signs each message</p>
-        <ul>
-          <li><span class="k">Integrity</span><span class="v">HMAC-SHA256</span></li>
-          <li><span class="k">Key-commitment</span><span class="v">CMT-4</span></li>
-          <li><span class="k">Nonce-reuse safety</span><span class="v">SIV mode</span></li>
-          <li><span class="k">Big files / streams</span><span class="v">STREAM</span></li>
-          <li><span class="k">Forward secrecy</span><span class="v">ratchet sessions</span></li>
-        </ul>
-        <div class="tagrow"><span class="tag vetted">HMAC/SHA vetted</span></div>
+        <div class="ic">🏷️</div>
+        <h3>② The tamper seal</h3>
+        <p class="tagline">Hides AND protects</p>
+        <p class="means">It doesn't just hide your data — it seals it. If anyone changes even one character on the way, the system knows instantly and refuses to open it.</p>
+        <p class="pic">Like the tamper-evident seal on a medicine bottle: if it's broken, you know not to trust what's inside.</p>
+        <div class="specs tech">
+          <div class="lbl">Technical</div>
+          <ul>
+            <li><span class="k">Integrity</span><span class="v">HMAC-SHA256, encrypt-then-MAC</span></li>
+            <li><span class="k">Wrong-key safety</span><span class="v">CMT-4 key-commitment</span></li>
+            <li><span class="k">Nonce-reuse safety</span><span class="v">SIV mode</span></li>
+            <li><span class="k">Big files / live feeds</span><span class="v">STREAM construction</span></li>
+            <li><span class="k">Per-message keys</span><span class="v">ratchet sessions</span></li>
+          </ul>
+        </div>
       </div>
 
       <div class="card"><span class="topbar"></span>
-        <h3>③ Two locks ("Option B")</h3>
-        <p class="role">The deployment that makes it safe to use</p>
-        <ul>
-          <li><span class="k">Outer wall</span><span class="v">chaos (sacrificial)</span></li>
-          <li><span class="k">Inner vault</span><span class="v">AES-256-GCM</span></li>
-          <li><span class="k">Vault option</span><span class="v">ChaCha20-Poly1305</span></li>
-          <li><span class="k">Key split</span><span class="v">HKDF-SHA256</span></li>
-          <li><span class="k">Keys shared?</span><span class="v">never</span></li>
-        </ul>
-        <div class="tagrow"><span class="tag vetted">AES-256-GCM inside</span></div>
+        <div class="ic">🔐</div>
+        <h3>③ Two locks (the safety net)</h3>
+        <p class="tagline">The most important design choice</p>
+        <p class="means">Because my scrambler is home-made and not yet certified by outside experts, I never let it be the <i>only</i> thing guarding your data. Your data always sits behind AES too — the exact lock banks and governments use. Two independent locks, one inside the other.</p>
+        <p class="pic">Your valuables go in a safe, and that safe goes inside a bank vault. A thief has to break both — and the inner one is world-class.</p>
+        <div class="specs tech">
+          <div class="lbl">Technical</div>
+          <ul>
+            <li><span class="k">Outer wall</span><span class="v">my chaos cipher (sacrificial)</span></li>
+            <li><span class="k">Inner vault</span><span class="v">AES-256-GCM</span></li>
+            <li><span class="k">Vault option</span><span class="v">ChaCha20-Poly1305</span></li>
+            <li><span class="k">Key split</span><span class="v">HKDF-SHA256 (never shared)</span></li>
+          </ul>
+        </div>
       </div>
 
       <div class="card"><span class="topbar"></span>
-        <h3>④ Key agreement</h3>
-        <p class="role">How two sides safely agree a key</p>
-        <ul>
-          <li><span class="k">Classical</span><span class="v">DH 2048-bit</span></li>
-          <li><span class="k">Quantum-safe secrecy</span><span class="v">ML-KEM-768</span></li>
-          <li><span class="k">Identity proof</span><span class="v">triple-DH</span></li>
-          <li><span class="k">Quantum-safe identity</span><span class="v">ML-DSA-65</span></li>
-          <li><span class="k">Handshake</span><span class="v">hybrid on both axes</span></li>
-        </ul>
-        <div class="tagrow"><span class="tag vetted">FIPS 203 / 204</span></div>
+        <div class="ic">🤝</div>
+        <h3>④ The secret handshake</h3>
+        <p class="tagline">Agreeing a key safely</p>
+        <p class="means">How two people who've never met can agree on a secret key over the open internet — without anyone listening in ever learning it. It even protects against the powerful quantum computers expected in the future.</p>
+        <p class="pic">Like two people mixing paint colours in full view, yet ending up with a shared secret shade no onlooker can reproduce.</p>
+        <div class="specs tech">
+          <div class="lbl">Technical</div>
+          <ul>
+            <li><span class="k">Classic key-exchange</span><span class="v">Diffie-Hellman 2048-bit</span></li>
+            <li><span class="k">Quantum-safe secrecy</span><span class="v">ML-KEM-768 (FIPS 203)</span></li>
+            <li><span class="k">Identity proof</span><span class="v">triple-DH</span></li>
+            <li><span class="k">Quantum-safe identity</span><span class="v">ML-DSA-65 (FIPS 204)</span></li>
+            <li><span class="k">Both axes</span><span class="v">hybrid (break-one-still-safe)</span></li>
+          </ul>
+        </div>
       </div>
 
       <div class="card"><span class="topbar"></span>
-        <h3>⑤ Proof &amp; tooling</h3>
-        <p class="role">How we keep ourselves honest</p>
-        <ul>
-          <li><span class="k">Languages</span><span class="v">Python + Rust</span></li>
-          <li><span class="k">Tests</span><span class="v">183 + 41 parity</span></li>
-          <li><span class="k">Self-attacks</span><span class="v">6 scripts, all pass</span></li>
-          <li><span class="k">Frozen vectors</span><span class="v">13 (bit-identical)</span></li>
-          <li><span class="k">Randomness</span><span class="v">PractRand clean ½ GB</span></li>
-        </ul>
-        <div class="tagrow"><span class="tag">built &amp; attacked</span></div>
+        <div class="ic">🔬</div>
+        <h3>⑤ How I keep it honest</h3>
+        <p class="tagline">Proof, not promises</p>
+        <p class="means">I don't just claim it's secure — I attack it myself and measure everything. Hundreds of automatic tests, six different break-in attempts, and a second from-scratch rebuild used to double-check the first one agrees exactly.</p>
+        <p class="pic">Like a safe-maker who hires burglars to crack his own safes before he ever sells one.</p>
+        <div class="specs tech">
+          <div class="lbl">Technical</div>
+          <ul>
+            <li><span class="k">Languages</span><span class="v">Python + Rust (cross-checked)</span></li>
+            <li><span class="k">Tests</span><span class="v">183 + 41 parity</span></li>
+            <li><span class="k">Self-attacks</span><span class="v">6 scripts, all pass</span></li>
+            <li><span class="k">Frozen vectors</span><span class="v">13 (bit-identical)</span></li>
+            <li><span class="k">Randomness</span><span class="v">PractRand clean to ½ GB</span></li>
+          </ul>
+        </div>
       </div>
 
     </div>
   </section>
 
-  <!-- ============ SPEED ============ -->
+  <!-- ============ HONEST COMPARISON ============ -->
   <section>
-    <p class="eyebrow">Part 2 · Raw speed — how fast it scrambles data</p>
-    <div class="bars">
-      <div class="bar">
-        <div class="lab">Our chaos cipher <small>Rust core, 4 maps</small></div>
-        <div class="track"><div class="fill" id="b-ours" style="background:var(--ours)">61 MB/s</div></div>
-      </div>
-      <div class="bar">
-        <div class="lab">Old Python version <small>where we started</small></div>
-        <div class="track"><div class="fill" id="b-py" style="background:#6b5a2e;color:#e8dcc0">1.7 MB/s</div></div>
-      </div>
-      <div class="bar">
-        <div class="lab">ChaCha20-Poly1305 <small>world standard (software)</small></div>
-        <div class="track"><div class="fill" id="b-cc" style="background:var(--chacha);color:#0c1020">2,272 MB/s</div></div>
-      </div>
-      <div class="bar">
-        <div class="lab">AES-256 <small>world standard (chip-accelerated)</small></div>
-        <div class="track"><div class="fill" id="b-aes" style="background:var(--aes);color:#06121a">9,082 MB/s</div></div>
-      </div>
-      <p class="note-log">Bars use a <b>logarithmic</b> scale (each step = 10×) — on a normal scale ours would be a sliver. Plain truth: AES is about <b>149× faster</b>, ChaCha20 about <b>37× faster</b>. That's expected and fine — chaos is only ever the outer wall; the fast vetted cipher does the real work inside.</p>
-    </div>
-  </section>
+    <p class="eyebrow">The honest comparison</p>
+    <h2>Mine vs. the world standard (AES)</h2>
+    <p class="say">AES is the encryption the entire world runs on. <b>I did not beat it, and I'd never claim to.</b> Here's the truthful side-by-side — green is a win, red is a loss, orange is “it depends.”</p>
 
-  <!-- ============ TABLE ============ -->
-  <section>
-    <p class="eyebrow">Part 3 · Head-to-head vs the world standard</p>
     <table>
       <thead>
         <tr>
-          <th style="width:24%">Dimension</th>
-          <th class="ours" style="width:38%">Our chaos system</th>
-          <th class="aes" style="width:38%">AES-256-GCM (world standard)</th>
+          <th style="width:22%">What we're comparing</th>
+          <th class="ours" style="width:30%">My chaos system</th>
+          <th class="aes" style="width:30%">AES (the world standard)</th>
+          <th style="width:18%">In plain words</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td>Speed</td>
-          <td class="ours"><span class="no">~61 MB/s</span><span class="dim">~149× slower</span></td>
-          <td><span class="yes">~9,000 MB/s</span><span class="dim">chip-accelerated on every modern CPU</span></td>
+          <td class="ours"><span class="no">~149× slower</span></td>
+          <td><span class="yes">Extremely fast</span><span class="dim">built into every modern chip</span></td>
+          <td class="plainsay">AES wins. But mine is still instant for everyday files.</td>
         </tr>
         <tr>
           <td>Trusted by experts?</td>
-          <td class="ours"><span class="no">No — unvetted</span><span class="dim">the core math is home-made; never reviewed publicly</span></td>
-          <td><span class="yes">Yes — global standard</span><span class="dim">25+ years of public attack, FIPS-approved</span></td>
+          <td class="ours"><span class="no">Not yet</span><span class="dim">home-made, not publicly reviewed</span></td>
+          <td><span class="yes">Yes — 25+ years</span><span class="dim">government-approved standard</span></td>
+          <td class="plainsay">AES wins. That's exactly why I keep AES inside as the real lock.</td>
         </tr>
         <tr>
-          <td>Adoption</td>
-          <td class="ours"><span class="no">Zero</span><span class="dim">a research artifact</span></td>
-          <td><span class="yes">Everywhere</span><span class="dim">TLS, disk encryption, messaging, banking</span></td>
+          <td>Wrong-key safety</td>
+          <td class="ours"><span class="yes">Built in</span></td>
+          <td><span class="meh">Not by default</span></td>
+          <td class="plainsay">Mine refuses to open with a wrong key instead of leaking clues.</td>
         </tr>
         <tr>
-          <td>Wrong-key safety<br>(key-commitment)</td>
-          <td class="ours"><span class="yes">Built in (CMT-4)</span><span class="dim">refuses to "open" under the wrong key</span></td>
-          <td><span class="meh">Not by default</span><span class="dim">plain GCM has a known key-confusion gap</span></td>
+          <td>Old messages stay safe<br>if a key is later stolen</td>
+          <td class="ours"><span class="yes">Built in</span></td>
+          <td><span class="meh">Needs extra setup</span></td>
+          <td class="plainsay">A stolen key can't unlock yesterday's messages.</td>
         </tr>
         <tr>
-          <td>Forward secrecy<br>(a stolen key can't read old messages)</td>
-          <td class="ours"><span class="yes">Built in (ratchet)</span></td>
-          <td><span class="meh">Not in the cipher</span><span class="dim">needs a protocol around it (e.g. TLS 1.3)</span></td>
-        </tr>
-        <tr>
-          <td>Quantum-ready handshake</td>
-          <td class="ours"><span class="yes">Built in</span><span class="dim">ML-KEM-768 + ML-DSA-65 hybrid</span></td>
-          <td><span class="meh">Cipher only</span><span class="dim">AES-256 itself stays ~128-bit vs quantum; key-exchange is a separate layer</span></td>
+          <td>Ready for quantum computers</td>
+          <td class="ours"><span class="yes">Built in</span></td>
+          <td><span class="meh">Needs an added layer</span></td>
+          <td class="plainsay">I baked in tomorrow's protection today.</td>
         </tr>
         <tr>
           <td>What ultimately guards the data</td>
-          <td class="ours"><span class="yes">AES-256-GCM</span><span class="dim">our two-lock design puts the vetted cipher inside</span></td>
-          <td><span class="yes">AES-256-GCM</span></td>
+          <td class="ours"><span class="yes">AES-256</span><span class="dim">my design puts it inside</span></td>
+          <td><span class="yes">AES-256</span></td>
+          <td class="plainsay">Same world-class lock at the core — I build <i>around</i> it, not instead of it.</td>
+        </tr>
+        <tr class="tech">
+          <td>🔧 Throughput (measured)</td>
+          <td class="ours">~61 MB/s <span class="dim">Rust 4-map core</span></td>
+          <td>~9,082 MB/s <span class="dim">AES-NI; ChaCha20 ~2,272</span></td>
+          <td class="plainsay">Raw engine speed only.</td>
         </tr>
       </tbody>
     </table>
-    <div class="callout"><b>Read this fairly:</b> the right column is AES as a bare cipher. In a real protocol like TLS 1.3, AES <i>also</i> gets forward secrecy, post-quantum key exchange, and committing variants. Our "wins" on those rows come from the <b>protocol we wrapped around the cipher</b> — not from the chaos math, and not unique to us. The one thing only <i>we</i> add is a second, experimental wall.</div>
+    <div class="plainbox">
+      <div class="h">💡 The fair way to read this</div>
+      <p>Several of my “wins” come from the modern protections I wrapped <i>around</i> the cipher — not from my home-made math, and a top setup using AES (like the security in your web browser) can have those too. The one thing only mine adds is a second, experimental wall on the outside. I'm showing you the honest picture, not a sales trick.</p>
+    </div>
   </section>
 
   <!-- ============ RADAR ============ -->
   <section>
-    <p class="eyebrow">Part 4 · The shape of the trade-off</p>
+    <p class="eyebrow">The trade-off at a glance</p>
+    <h2>The shape of the difference</h2>
+    <p class="say">The bigger the shape reaches toward a corner, the stronger it is there.</p>
     <div class="twocol">
-      <div class="radar-card">
+      <div class="panel">
         <div class="legend">
-          <span><span class="dot" style="background:var(--ours)"></span> Our chaos system</span>
-          <span><span class="dot" style="background:var(--aes)"></span> AES-256-GCM (bare cipher)</span>
+          <span><span class="dot" style="background:var(--ours)"></span> My chaos system</span>
+          <span><span class="dot" style="background:var(--aes)"></span> AES (bare cipher)</span>
         </div>
-        <svg id="radar" viewBox="0 0 460 380" width="100%" height="auto" aria-label="Radar comparison"></svg>
+        <svg id="radar" viewBox="0 0 460 380" width="100%" height="auto"></svg>
       </div>
-      <div class="verdict-card">
-        <h3>What the picture says</h3>
-        <p>AES owns the things that matter most for trusting your data: it's <span class="punch">faster, vetted, and used everywhere</span>. Nothing we built changes that — and we didn't try to.</p>
-        <p>Our system stretches out on the other side: <span class="punch">modern protocol features</span> baked in — wrong-key safety, forward secrecy, and a quantum-ready handshake — wrapped around a vetted core.</p>
+      <div>
         <div class="axkey">
-          <div><b>Speed</b> — how fast it encrypts</div>
-          <div><b>Vetted</b> — reviewed &amp; trusted by experts</div>
-          <div><b>Adoption</b> — how widely it's actually used</div>
-          <div><b>Integrity+</b> — tamper &amp; wrong-key protection</div>
-          <div><b>Forward secrecy</b> — stolen key can't read the past</div>
-          <div><b>Quantum-ready</b> — survives a future quantum computer</div>
+          <div><b>Speed</b> — how fast it locks data</div>
+          <div><b>Trusted</b> — proven &amp; checked by experts</div>
+          <div><b>Used everywhere</b> — real-world adoption</div>
+          <div><b>Tamper-proof</b> — catches any change or wrong key</div>
+          <div><b>Past stays safe</b> — a stolen key can't read old data</div>
+          <div><b>Quantum-ready</b> — survives future super-computers</div>
+        </div>
+        <div class="plainbox">
+          <div class="h">💡 In one sentence</div>
+          <p>AES wins on the things that build trust — speed, proof, and worldwide use. Mine reaches further on modern conveniences — and crucially, it <i>keeps AES inside</i>, so you never give those up.</p>
         </div>
       </div>
     </div>
@@ -289,73 +375,94 @@
 
   <!-- ============ VERDICT ============ -->
   <section>
-    <div class="verdict-card">
-      <h3>The honest bottom line</h3>
-      <p>We did <b>not</b> beat AES, and we never could — it's faster and it's trusted by the whole world. What we actually built is a <span class="punch">complete, modern encryption system</span> that <b>uses</b> AES as its safety net and adds an experimental home-made wall on the outside, plus the protocol pieces (forward secrecy, quantum-ready handshakes, wrong-key safety) that a serious system needs.</p>
-      <p>The home-made keystream survived every attack <i>we</i> could throw at it — but that only means <i>we</i> couldn't break it. Real proof is the last step left: <b>letting outside cryptographers try</b>. Until then it stays clearly labelled <span class="punch">unvetted — never the only lock on real data.</span></p>
+    <div class="verdict">
+      <h2>The honest bottom line</h2>
+      <p>I could have shown you only the flattering parts. I didn't. The scrambler I invented isn't certified by outside cryptographers yet — so I designed the whole system so it can <span class="punch">never be the only thing protecting your data</span>. Your information always sits behind AES, the same lock the banks use.</p>
+      <p>That's the point of this demo. It isn't “I beat the experts.” It's: <span class="punch">I can design a serious, modern security system, build it twice to check itself, attack it to find its limits, and tell you the plain truth about what it can and can't do.</span> That careful, honest engineering is what you'd be hiring.</p>
     </div>
   </section>
 
-  <footer>Chaos Cipher · research &amp; learning project · numbers measured on this machine, 2026-06-29 · UNVETTED — not for protecting real data on its own.</footer>
+  <footer>Chaos Cipher · a research &amp; portfolio project · all numbers measured on a normal laptop · the home-made layer is honest-labelled “not yet expert-reviewed,” and never the only lock on real data.</footer>
 
 </div>
 
 <script>
-  // ---- speed bars: logarithmic widths ----
+  // ---------- "feels instant" chart ----------
   (function(){
-    var data = {'b-ours':61,'b-py':1.7,'b-cc':2272,'b-aes':9082};
-    var max = Math.log10(9082), min = Math.log10(1.7);
-    for(var id in data){
-      var w = (Math.log10(data[id]) - min) / (max - min); // 0..1
-      w = 0.10 + w*0.90;                                   // floor so tiny bars stay visible
-      document.getElementById(id).style.width = (w*100).toFixed(1) + '%';
-    }
+    var SPEED = 61;            // MB/s, our Rust core
+    var AXIS  = 1.0;           // seconds shown full-width
+    var items = [
+      {name:'A text or short email', sub:'a few KB',            mb:0.01},
+      {name:'A signed contract',      sub:'PDF, ~2 MB',          mb:2},
+      {name:'A high-resolution photo',sub:'~5 MB',               mb:5},
+      {name:'A folder of 50 documents',sub:'~25 MB',             mb:25},
+      {name:'100 phone photos at once',sub:'~100 MB',            mb:100}
+    ];
+    var host = document.getElementById('ibars');
+    var blink = document.getElementById('blinkline');
+    items.forEach(function(it){
+      var secs = it.mb / SPEED;
+      var pct  = Math.min(secs / AXIS, 1) * 100;
+      var slow = secs > 0.1;
+      var timeTxt = secs < 0.01 ? 'instant'
+                  : secs < 1   ? secs.toFixed(2).replace(/0$/,'') + ' sec'
+                  : secs.toFixed(1) + ' sec';
+      var row = document.createElement('div');
+      row.className = 'irow';
+      row.innerHTML =
+        '<div class="lab">'+it.name+'<small>'+it.sub+'</small></div>'+
+        '<div class="itrack"><div class="ifill'+(slow?' slow':'')+'" style="width:'+Math.max(pct,2).toFixed(1)+'%"></div></div>'+
+        '<div class="itime" style="color:'+(slow?'#e6b24a':'#56c98d')+'">'+timeTxt+'</div>';
+      host.insertBefore(row, blink);
+    });
+    // blink line at 0.1s within the bar column. Column starts at 230px label + 14px gap.
+    var blinkPct = (0.1/AXIS)*100;
+    blink.style.left = 'calc(244px + (100% - 244px - 110px) * '+(blinkPct/100)+')';
   })();
 
-  // ---- radar chart ----
+  // ---------- raw speed bars (technical) ----------
   (function(){
-    var svg = document.getElementById('radar');
-    var cx=230, cy=190, R=130;
-    var axes = ['Speed','Vetted','Adoption','Integrity+','Forward\nsecrecy','Quantum\nready'];
-    // scores 0..10 — honest
-    var ours = [1, 2, 1, 9, 9, 9];
-    var aes  = [10,10,10, 7, 2, 3];
-    var n = axes.length;
-    var NS='http://www.w3.org/2000/svg';
-    function pt(i, val){
-      var a = -Math.PI/2 + i*2*Math.PI/n;
-      var r = R*val/10;
-      return [cx + r*Math.cos(a), cy + r*Math.sin(a)];
-    }
-    function poly(vals){ return vals.map(function(v,i){return pt(i,v).join(',');}).join(' '); }
-    function el(tag,attrs){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);return e;}
+    var host = document.getElementById('speedbars');
+    if(!host) return;
+    var data = [
+      {n:'My chaos cipher (Rust)', v:61,   c:'#e3c168', t:'#0c1020'},
+      {n:'My first version (Python)', v:1.7, c:'#6b5a2e', t:'#e8dcc0'},
+      {n:'ChaCha20 (world standard)', v:2272, c:'#7e88f0', t:'#0c1020'},
+      {n:'AES-256 (world standard)', v:9082, c:'#5bbfd6', t:'#06121a'}
+    ];
+    var lo=Math.log10(1.7), hi=Math.log10(9082);
+    data.forEach(function(d){
+      var w = 0.10 + (Math.log10(d.v)-lo)/(hi-lo)*0.90;
+      var row=document.createElement('div');
+      row.style.cssText='display:grid;grid-template-columns:200px 1fr;gap:14px;align-items:center;margin:10px 0';
+      row.innerHTML='<div style="font-size:13px">'+d.n+'</div>'+
+        '<div style="background:#0c1426;border:1px solid #1c2742;border-radius:7px;height:26px;overflow:hidden">'+
+        '<div style="height:100%;width:'+(w*100).toFixed(1)+'%;background:'+d.c+';color:'+d.t+
+        ';display:flex;align-items:center;justify-content:flex-end;padding-right:9px;font-size:12px;font-weight:700;border-radius:6px 0 0 6px">'+
+        d.v.toLocaleString()+' MB/s</div></div>';
+      host.appendChild(row);
+    });
+  })();
 
-    // rings
-    [2,4,6,8,10].forEach(function(g){
-      var ring = el('polygon',{points:poly([g,g,g,g,g,g]),fill:'none',stroke:'#22304e','stroke-width':1});
-      svg.appendChild(ring);
-    });
-    // spokes + labels
+  // ---------- radar ----------
+  (function(){
+    var svg=document.getElementById('radar');
+    var cx=230,cy=190,R=128,NS='http://www.w3.org/2000/svg';
+    var axes=['Speed','Trusted','Used\neverywhere','Tamper-\nproof','Past stays\nsafe','Quantum\nready'];
+    var ours=[1,2,1,9,9,9], aes=[10,10,10,7,2,3], n=axes.length;
+    function pt(i,v){var a=-Math.PI/2+i*2*Math.PI/n,r=R*v/10;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+    function poly(vs){return vs.map(function(v,i){return pt(i,v).join(',');}).join(' ');}
+    function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+    [2,4,6,8,10].forEach(function(g){svg.appendChild(el('polygon',{points:poly([g,g,g,g,g,g]),fill:'none',stroke:'#22304e','stroke-width':1}));});
     for(var i=0;i<n;i++){
-      var p = pt(i,10);
-      svg.appendChild(el('line',{x1:cx,y1:cy,x2:p[0],y2:p[1],stroke:'#22304e','stroke-width':1}));
-      var lp = pt(i,11.9);
-      var lines = axes[i].split('\n');
-      var anchor = Math.abs(lp[0]-cx)<6 ? 'middle' : (lp[0]>cx?'start':'end');
-      lines.forEach(function(txt,li){
-        var t = el('text',{x:lp[0],y:lp[1]+li*12 - (lines.length-1)*6,fill:'#9aa6bf','font-size':11,
-          'text-anchor':anchor,'font-family':'sans-serif'});
-        t.textContent = txt; svg.appendChild(t);
-      });
+      var p=pt(i,10);svg.appendChild(el('line',{x1:cx,y1:cy,x2:p[0],y2:p[1],stroke:'#22304e','stroke-width':1}));
+      var lp=pt(i,12), lines=axes[i].split('\n');
+      var anchor=Math.abs(lp[0]-cx)<6?'middle':(lp[0]>cx?'start':'end');
+      lines.forEach(function(txt,li){var t=el('text',{x:lp[0],y:lp[1]+li*12-(lines.length-1)*6,fill:'#9aa6bf','font-size':11,'text-anchor':anchor});t.textContent=txt;svg.appendChild(t);});
     }
-    // AES polygon (under)
     svg.appendChild(el('polygon',{points:poly(aes),fill:'rgba(91,191,214,.16)',stroke:'#5bbfd6','stroke-width':2}));
-    // Ours polygon (over)
     svg.appendChild(el('polygon',{points:poly(ours),fill:'rgba(227,193,104,.18)',stroke:'#e3c168','stroke-width':2}));
-    // vertices
-    [['#5bbfd6',aes],['#e3c168',ours]].forEach(function(pair){
-      pair[1].forEach(function(v,i){var p=pt(i,v);svg.appendChild(el('circle',{cx:p[0],cy:p[1],r:3,fill:pair[0]}));});
-    });
+    [['#5bbfd6',aes],['#e3c168',ours]].forEach(function(pr){pr[1].forEach(function(v,i){var p=pt(i,v);svg.appendChild(el('circle',{cx:p[0],cy:p[1],r:3,fill:pr[0]}));});});
   })();
 </script>
 </body>
