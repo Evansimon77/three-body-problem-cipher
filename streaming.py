@@ -93,14 +93,22 @@ class StreamSealer:
     """Encrypt a stream chunk by chunk. Send `.header` first, then each `.seal_chunk(...)` frame in
     order; mark the last with `final=True`."""
 
-    def __init__(self, master_key: bytes, aad: bytes = b"", n_maps: int = DEFAULT_N_MAPS):
+    def __init__(self, master_key: bytes, aad: bytes = b"", n_maps: int = DEFAULT_N_MAPS,
+                 salt: bytes | None = None):
         if not isinstance(master_key, (bytes, bytearray)):
             raise TypeError("master_key must be bytes")
         self._master = bytes(master_key)
         self._aad = bytes(aad)
         self._n_maps = n_maps
         self._mac_key = _stream_mac_key(self._master)
-        self._salt = os.urandom(SALT_LEN)
+        # salt is normally a fresh random value; an explicit salt is for deterministic use only
+        # (KAT vectors / cross-impl parity). Reusing a salt across streams is safe here because each
+        # chunk's nonce also includes its index + flags, but prefer random in production.
+        if salt is None:
+            salt = os.urandom(SALT_LEN)
+        elif len(salt) != SALT_LEN:
+            raise ValueError(f"salt must be {SALT_LEN} bytes")
+        self._salt = salt
         self._index = 0
         self._closed = False
         # The header binds the key to (salt, aad): key-commitment for the whole stream.
@@ -171,10 +179,11 @@ class StreamOpener:
 # --- convenience one-shot form (whole buffer in memory; handy for tests / small payloads) --------
 
 def seal_stream(master_key: bytes, chunks: list[bytes], aad: bytes = b"",
-                n_maps: int = DEFAULT_N_MAPS) -> bytes:
+                n_maps: int = DEFAULT_N_MAPS, salt: bytes | None = None) -> bytes:
     """Seal a list of chunks into ONE self-delimiting blob: header || (framelen||frame)*. An empty
-    list still emits a single final empty chunk so open_stream round-trips to b""."""
-    sealer = StreamSealer(master_key, aad, n_maps)
+    list still emits a single final empty chunk so open_stream round-trips to b"". `salt` is for
+    deterministic use only (KAT / parity); leave it None for a fresh random salt."""
+    sealer = StreamSealer(master_key, aad, n_maps, salt=salt)
     out = bytearray(sealer.header)
     if not chunks:
         chunks = [b""]

@@ -468,9 +468,273 @@ impl RatchetEngine {
     }
 }
 
+// ---- the committing AEAD shell (Phase 8.1): a full seal/open over the multimap keystream ----
+//
+// Bit-identical port of aead.py + commit.py. The chaos keystream is the (UNVETTED) bulk cipher; the
+// integrity and key-commitment ride vetted HMAC-SHA256 (the `hmac`/`sha2` crates — NOT hand-rolled).
+//
+//   wire format:  nonce(16) || commit(32) || ciphertext(N) || tag(32)
+//   commit  = HMAC( HMAC(key, "commit-key-info"), nonce || len(aad) || aad )   (CMT-4 key-commitment)
+//   tag     = HMAC( HMAC(key, "mac-key-info"),    nonce || commit || len(aad) || aad || ciphertext )
+//
+// `seal` takes an explicit nonce (the Python shell draws a fresh random one per call; the determinism
+// lives here so the frozen KAT can pin a full encrypt/decrypt). `open` returns None on any failure —
+// wrong key, tamper, or a failed commitment — and NEVER returns plaintext in that case.
+
+pub const NONCE_LEN: usize = 16;
+pub const COMMIT_LEN: usize = 32;
+pub const TAG_LEN: usize = 32;
+
+const COMMIT_KEY_INFO: &[u8] = b"chaos-pwlcm-v1|commit-key|v1"; // commit.py _COMMIT_KEY_INFO
+const MAC_INFO: &[u8] = b"chaos-pwlcm-v1|mac-key"; // aead.py _MAC_INFO
+
+/// HMAC-SHA256 over several parts in order (incremental, no intermediate concat). Mirrors Python's
+/// `hmac.new(key).update(p) ...` so the byte stream fed to the MAC is identical.
+fn hmac_sha256_multi(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    for p in parts {
+        mac.update(p);
+    }
+    mac.finalize().into_bytes().into()
+}
+
+/// Constant-time byte equality (mirror of `hmac.compare_digest`): no early-out on the first mismatch,
+/// so a wrong tag/commitment leaks no timing about where it diverged.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// CMT-4 key-commitment binding the master key to (salt, aad). Mirror of commit.py.
+pub fn key_commitment(master_key: &[u8], salt: &[u8], aad: &[u8]) -> [u8; 32] {
+    let k_c = hmac_sha256(master_key, COMMIT_KEY_INFO);
+    let alen = (aad.len() as u64).to_be_bytes();
+    hmac_sha256_multi(&k_c, &[salt, &alen, aad])
+}
+
+/// Encrypt-then-MAC tag over nonce + commitment + length-prefixed aad + ciphertext. Mirror of aead._tag.
+fn aead_tag(master_key: &[u8], nonce: &[u8], commit: &[u8], aad: &[u8], ct: &[u8]) -> [u8; 32] {
+    let mac_key = hmac_sha256(master_key, MAC_INFO);
+    let alen = (aad.len() as u64).to_be_bytes();
+    hmac_sha256_multi(&mac_key, &[nonce, commit, &alen, aad, ct])
+}
+
+/// Seal: nonce || commit || (plaintext XOR keystream) || tag. Deterministic in the given nonce.
+pub fn aead_seal(master_key: &[u8], nonce: &[u8], plaintext: &[u8], aad: &[u8], n_maps: usize) -> Vec<u8> {
+    let ks = MultiMapEngine::new(master_key, nonce, n_maps).keystream(plaintext.len());
+    let ct: Vec<u8> = plaintext.iter().zip(ks.iter()).map(|(p, k)| p ^ k).collect();
+    let commit = key_commitment(master_key, nonce, aad);
+    let tag = aead_tag(master_key, nonce, &commit, aad, &ct);
+    let mut blob = Vec::with_capacity(NONCE_LEN + COMMIT_LEN + ct.len() + TAG_LEN);
+    blob.extend_from_slice(&nonce[..NONCE_LEN]);
+    blob.extend_from_slice(&commit);
+    blob.extend_from_slice(&ct);
+    blob.extend_from_slice(&tag);
+    blob
+}
+
+/// Open: verify tag (constant-time) THEN the key-commitment, then decrypt. None on any failure.
+pub fn aead_open(master_key: &[u8], blob: &[u8], aad: &[u8], n_maps: usize) -> Option<Vec<u8>> {
+    if blob.len() < NONCE_LEN + COMMIT_LEN + TAG_LEN {
+        return None;
+    }
+    let nonce = &blob[..NONCE_LEN];
+    let commit = &blob[NONCE_LEN..NONCE_LEN + COMMIT_LEN];
+    let tag = &blob[blob.len() - TAG_LEN..];
+    let ct = &blob[NONCE_LEN + COMMIT_LEN..blob.len() - TAG_LEN];
+
+    let expected_tag = aead_tag(master_key, nonce, commit, aad, ct);
+    if !ct_eq(&expected_tag, tag) {
+        return None;
+    }
+    let expected_commit = key_commitment(master_key, nonce, aad);
+    if !ct_eq(&expected_commit, commit) {
+        return None;
+    }
+    let ks = MultiMapEngine::new(master_key, nonce, n_maps).keystream(ct.len());
+    Some(ct.iter().zip(ks.iter()).map(|(c, k)| c ^ k).collect())
+}
+
+// ---- streaming AEAD (Phase 8.2): the STREAM construction (bit-identical port of streaming.py) ----
+//
+// Encrypt a big payload chunk-by-chunk. Each chunk's HMAC binds its index + a `final` flag, so
+// reorder / drop / duplicate / truncate are all caught on top of tamper; the header carries a
+// key-commitment. Wire format (self-delimiting one-shot form, mirror of seal_stream/open_stream):
+//   header : salt(16) || commit(32)
+//   frame  : framelen(4, big-endian) || flags(1) || ciphertext(N) || tag(32)   [framelen = 1+N+32]
+//   per chunk i:  nonce_i = salt || i(8,BE) || flags ; tag_i = HMAC(stream_mac_key,
+//                 salt || i(8,BE) || flags || len(aad)(8,BE) || aad || ct_i)
+
+pub const SALT_LEN: usize = 16;
+pub const HEADER_LEN: usize = SALT_LEN + COMMIT_LEN;
+const STREAM_MAC_INFO: &[u8] = b"chaos-pwlcm-v1|stream-mac-key";
+const FINAL_FLAG: u8 = 0x01;
+const FRAME_LEN_BYTES: usize = 4;
+
+fn stream_mac_key(master_key: &[u8]) -> [u8; 32] {
+    hmac_sha256(master_key, STREAM_MAC_INFO)
+}
+
+fn chunk_tag(mac_key: &[u8], salt: &[u8], index: u64, flags: u8, aad: &[u8], ct: &[u8]) -> [u8; 32] {
+    let idx = index.to_be_bytes();
+    let alen = (aad.len() as u64).to_be_bytes();
+    hmac_sha256_multi(mac_key, &[salt, &idx, &[flags], &alen, aad, ct])
+}
+
+fn chunk_nonce(salt: &[u8], index: u64, flags: u8) -> Vec<u8> {
+    let mut n = Vec::with_capacity(SALT_LEN + 8 + 1);
+    n.extend_from_slice(salt);
+    n.extend_from_slice(&index.to_be_bytes());
+    n.push(flags);
+    n
+}
+
+/// Seal a list of chunks into one self-delimiting blob. Deterministic in the given salt (the only
+/// nondeterminism in the Python shell). An empty list emits a single empty final chunk.
+pub fn stream_seal(master_key: &[u8], salt: &[u8], chunks: &[&[u8]], aad: &[u8], n_maps: usize) -> Vec<u8> {
+    let mac_key = stream_mac_key(master_key);
+    let mut out = Vec::new();
+    out.extend_from_slice(&salt[..SALT_LEN]);
+    out.extend_from_slice(&key_commitment(master_key, salt, aad));
+
+    let single_empty: [&[u8]; 1] = [b""];
+    let chunks: &[&[u8]] = if chunks.is_empty() { &single_empty } else { chunks };
+    let last = chunks.len() - 1;
+    for (i, c) in chunks.iter().enumerate() {
+        let flags = if i == last { FINAL_FLAG } else { 0 };
+        let nonce = chunk_nonce(salt, i as u64, flags);
+        let ks = MultiMapEngine::new(master_key, &nonce, n_maps).keystream(c.len());
+        let ct: Vec<u8> = c.iter().zip(ks.iter()).map(|(p, k)| p ^ k).collect();
+        let tag = chunk_tag(&mac_key, salt, i as u64, flags, aad, &ct);
+        let frame_len = (1 + ct.len() + TAG_LEN) as u32;
+        out.extend_from_slice(&frame_len.to_be_bytes());
+        out.push(flags);
+        out.extend_from_slice(&ct);
+        out.extend_from_slice(&tag);
+    }
+    out
+}
+
+/// Verify + decrypt a blob made by `stream_seal`. None on any manipulation (tamper / reorder / drop /
+/// duplicate / truncate / trailing data / wrong key). Returns the concatenated plaintext otherwise.
+pub fn stream_open(master_key: &[u8], blob: &[u8], aad: &[u8], n_maps: usize) -> Option<Vec<u8>> {
+    if blob.len() < HEADER_LEN {
+        return None;
+    }
+    let salt = &blob[..SALT_LEN];
+    let commit = &blob[SALT_LEN..HEADER_LEN];
+    if !ct_eq(&key_commitment(master_key, salt, aad), commit) {
+        return None;
+    }
+    let mac_key = stream_mac_key(master_key);
+    let mut pos = HEADER_LEN;
+    let mut out = Vec::new();
+    let mut index: u64 = 0;
+    let mut saw_final = false;
+    while pos < blob.len() {
+        if pos + FRAME_LEN_BYTES > blob.len() {
+            return None;
+        }
+        let flen = u32::from_be_bytes(blob[pos..pos + FRAME_LEN_BYTES].try_into().ok()?) as usize;
+        pos += FRAME_LEN_BYTES;
+        if pos + flen > blob.len() || flen < 1 + TAG_LEN {
+            return None;
+        }
+        let frame = &blob[pos..pos + flen];
+        pos += flen;
+        let flags = frame[0];
+        let ct = &frame[1..frame.len() - TAG_LEN];
+        let tag = &frame[frame.len() - TAG_LEN..];
+        let expected = chunk_tag(&mac_key, salt, index, flags, aad, ct);
+        if !ct_eq(&expected, tag) {
+            return None;
+        }
+        let nonce = chunk_nonce(salt, index, flags);
+        let ks = MultiMapEngine::new(master_key, &nonce, n_maps).keystream(ct.len());
+        out.extend(ct.iter().zip(ks.iter()).map(|(c, k)| c ^ k));
+        index += 1;
+        if flags & FINAL_FLAG != 0 {
+            saw_final = true;
+            break;
+        }
+    }
+    if pos != blob.len() || !saw_final {
+        return None; // trailing data after final, or truncated (never saw final)
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_seal_open_roundtrip_and_attacks() {
+        let key = b"streaming key";
+        let salt = b"sixteen-byte-slt"; // 16 bytes
+        let aad = b"file.bin";
+        let chunks: [&[u8]; 3] = [b"chunk one", b"chunk two is longer", b"three"];
+        let blob = stream_seal(key, salt, &chunks, aad, DEFAULT_N_MAPS);
+        let joined: Vec<u8> = chunks.concat();
+        assert_eq!(stream_open(key, &blob, aad, DEFAULT_N_MAPS).as_deref(), Some(&joined[..]));
+
+        // tamper a ciphertext byte
+        let mut bad = blob.clone();
+        bad[HEADER_LEN + FRAME_LEN_BYTES + 1] ^= 0x01;
+        assert!(stream_open(key, &bad, aad, DEFAULT_N_MAPS).is_none());
+        // wrong key / wrong aad
+        assert!(stream_open(b"wrong", &blob, aad, DEFAULT_N_MAPS).is_none());
+        assert!(stream_open(key, &blob, b"other", DEFAULT_N_MAPS).is_none());
+        // truncate the final frame -> never see final
+        let cut = HEADER_LEN
+            + FRAME_LEN_BYTES
+            + (1 + "chunk one".len() + TAG_LEN);
+        assert!(stream_open(key, &blob[..cut], aad, DEFAULT_N_MAPS).is_none());
+    }
+
+    #[test]
+    fn stream_empty_roundtrips() {
+        let key = b"k";
+        let salt = b"0123456789abcdef";
+        let blob = stream_seal(key, salt, &[], b"", DEFAULT_N_MAPS);
+        assert_eq!(stream_open(key, &blob, b"", DEFAULT_N_MAPS).as_deref(), Some(&b""[..]));
+    }
+
+    #[test]
+    fn aead_seal_open_roundtrip() {
+        let key = b"a shared secret key";
+        let nonce = b"sixteen-byte-non"; // 16 bytes
+        let aad = b"context";
+        let pt = b"the quick brown fox jumps over the lazy dog";
+        let blob = aead_seal(key, nonce, pt, aad, DEFAULT_N_MAPS);
+        assert_eq!(aead_open(key, &blob, aad, DEFAULT_N_MAPS).as_deref(), Some(&pt[..]));
+    }
+
+    #[test]
+    fn aead_open_rejects_tamper_wrong_key_and_aad() {
+        let key = b"a shared secret key";
+        let nonce = b"sixteen-byte-non";
+        let aad = b"context";
+        let pt = b"secret payload";
+        let blob = aead_seal(key, nonce, pt, aad, DEFAULT_N_MAPS);
+        // tamper a ciphertext byte
+        let mut bad = blob.clone();
+        let i = NONCE_LEN + COMMIT_LEN + 1;
+        bad[i] ^= 0x01;
+        assert!(aead_open(key, &bad, aad, DEFAULT_N_MAPS).is_none());
+        // wrong key
+        assert!(aead_open(b"the wrong key", &blob, aad, DEFAULT_N_MAPS).is_none());
+        // wrong aad
+        assert!(aead_open(key, &blob, b"other", DEFAULT_N_MAPS).is_none());
+        // truncation
+        assert!(aead_open(key, &blob[..blob.len() - 1], aad, DEFAULT_N_MAPS).is_none());
+    }
 
     #[test]
     fn finalize_matches_known_answer() {

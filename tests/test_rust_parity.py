@@ -87,3 +87,80 @@ def test_rust_matches_kat_ratchet():
     n = case["length"]
     got = _rust("ratchet", case["key"], case["nonce"], case["epoch_bytes"], n)
     assert got == case["keystream"], "Rust ratchet diverged from the frozen KAT (chain or epoch seam)."
+
+
+def test_rust_matches_kat_aead_seal():
+    """The committing AEAD (Phase 8.1): Rust seal of the fixed (key, nonce, aad, plaintext) must equal
+    the frozen blob byte-for-byte (nonce || commit || ciphertext || tag) — proves the HMAC tag, the
+    key-commitment, and the keystream XOR all match Python."""
+    c = _frozen("aead")
+    got = _rust("aead_seal", c["key"], c["nonce"], c["aad"], c["plaintext"], c["n_maps"])
+    assert got == c["blob"], "Rust aead_seal diverged from the frozen KAT blob."
+
+
+def test_rust_aead_open_roundtrip():
+    """Rust open of the frozen blob returns the original plaintext."""
+    c = _frozen("aead")
+    got = _rust("aead_open", c["key"], c["aad"], c["blob"], c["n_maps"])
+    assert got == c["plaintext"], "Rust aead_open did not recover the plaintext."
+
+
+def test_rust_aead_open_rejects_tamper():
+    """A flipped ciphertext byte must make Rust open fail closed (prints INVALID, no plaintext)."""
+    c = _frozen("aead")
+    blob = bytearray(bytes.fromhex(c["blob"]))
+    blob[16 + 32 + 1] ^= 0x01           # flip a ciphertext byte (past nonce + commitment)
+    got = _rust("aead_open", c["key"], c["aad"], blob.hex(), c["n_maps"])
+    assert got == "INVALID", "Rust aead_open accepted a tampered blob."
+
+
+def test_python_opens_rust_sealed_blob():
+    """Real interop: a blob SEALED by the Rust core must OPEN under the Python shell (and vice versa is
+    covered by test_rust_aead_open_roundtrip on the Python-generated KAT blob). This proves the two
+    implementations are wire-compatible, not just internally self-consistent."""
+    import sys
+    sys.path.insert(0, _ROOT)
+    from aead import open_  # noqa: E402
+
+    c = _frozen("aead")
+    rust_blob = bytes.fromhex(_rust("aead_seal", c["key"], c["nonce"], c["aad"],
+                                    c["plaintext"], c["n_maps"]))
+    opened = open_(bytes.fromhex(c["key"]), rust_blob, aad=bytes.fromhex(c["aad"]),
+                   n_maps=c["n_maps"])
+    assert opened == bytes.fromhex(c["plaintext"]), "Python could not open the Rust-sealed blob."
+
+
+def test_rust_matches_kat_stream_seal():
+    """The streaming AEAD (Phase 8.2): Rust seal of the fixed (key, salt, aad, chunks) must equal the
+    frozen blob — proves header, per-chunk framing, nonces, tags and the final-flag all match Python."""
+    c = _frozen("stream")
+    got = _rust("stream_seal", c["key"], c["salt"], c["aad"], c["n_maps"], *c["chunks"])
+    assert got == c["blob"], "Rust stream_seal diverged from the frozen KAT blob."
+
+
+def test_rust_stream_open_roundtrip():
+    c = _frozen("stream")
+    got = _rust("stream_open", c["key"], c["aad"], c["n_maps"], c["blob"])
+    assert got == c["plaintext"], "Rust stream_open did not recover the concatenated plaintext."
+
+
+def test_rust_stream_open_rejects_tamper():
+    c = _frozen("stream")
+    blob = bytearray(bytes.fromhex(c["blob"]))
+    blob[16 + 32 + 4 + 1] ^= 0x01        # flip a byte in the first chunk's ciphertext
+    got = _rust("stream_open", c["key"], c["aad"], c["n_maps"], blob.hex())
+    assert got == "INVALID", "Rust stream_open accepted a tampered stream."
+
+
+def test_python_opens_rust_sealed_stream():
+    """Interop: a stream sealed by Rust must open under the Python streaming shell."""
+    import sys
+    sys.path.insert(0, _ROOT)
+    from streaming import open_stream  # noqa: E402
+
+    c = _frozen("stream")
+    rust_blob = bytes.fromhex(_rust("stream_seal", c["key"], c["salt"], c["aad"],
+                                    c["n_maps"], *c["chunks"]))
+    opened = open_stream(bytes.fromhex(c["key"]), rust_blob, aad=bytes.fromhex(c["aad"]),
+                         n_maps=c["n_maps"])
+    assert opened == bytes.fromhex(c["plaintext"]), "Python could not open the Rust-sealed stream."

@@ -8,7 +8,10 @@
 
 use std::time::Instant;
 
-use chaos_core::{ChaosEngine, MultiMapEngine, RatchetEngine, DEFAULT_N_MAPS};
+use chaos_core::{
+    aead_open, aead_seal, stream_open, stream_seal, ChaosEngine, MultiMapEngine, RatchetEngine,
+    DEFAULT_N_MAPS,
+};
 
 /// Parse a hex byte string (e.g. the KAT key/nonce material) into raw bytes.
 fn parse_hex_bytes(s: &str) -> Vec<u8> {
@@ -76,6 +79,47 @@ fn main() {
             let n: usize = args[5].parse().expect("bad length");
             let ks = RatchetEngine::new(&key, &nonce, epoch_bytes, DEFAULT_N_MAPS).keystream(n);
             println!("{}", hex_of(&ks));
+        }
+        "aead_seal" => {
+            // chaos_core aead_seal <key_hex> <nonce_hex> <aad_hex> <pt_hex> <n_maps>  -> blob hex
+            let key = parse_hex_bytes(&args[2]);
+            let nonce = parse_hex_bytes(&args[3]);
+            let aad = parse_hex_bytes(&args[4]);
+            let pt = parse_hex_bytes(&args[5]);
+            let n_maps: usize = args[6].parse().expect("bad n_maps");
+            println!("{}", hex_of(&aead_seal(&key, &nonce, &pt, &aad, n_maps)));
+        }
+        "aead_open" => {
+            // chaos_core aead_open <key_hex> <aad_hex> <blob_hex> <n_maps>  -> plaintext hex or INVALID
+            let key = parse_hex_bytes(&args[2]);
+            let aad = parse_hex_bytes(&args[3]);
+            let blob = parse_hex_bytes(&args[4]);
+            let n_maps: usize = args[5].parse().expect("bad n_maps");
+            match aead_open(&key, &blob, &aad, n_maps) {
+                Some(pt) => println!("{}", hex_of(&pt)),
+                None => println!("INVALID"),
+            }
+        }
+        "stream_seal" => {
+            // chaos_core stream_seal <key_hex> <salt_hex> <aad_hex> <n_maps> <chunk_hex>...
+            let key = parse_hex_bytes(&args[2]);
+            let salt = parse_hex_bytes(&args[3]);
+            let aad = parse_hex_bytes(&args[4]);
+            let n_maps: usize = args[5].parse().expect("bad n_maps");
+            let chunk_vecs: Vec<Vec<u8>> = args[6..].iter().map(|a| parse_hex_bytes(a)).collect();
+            let chunks: Vec<&[u8]> = chunk_vecs.iter().map(|v| v.as_slice()).collect();
+            println!("{}", hex_of(&stream_seal(&key, &salt, &chunks, &aad, n_maps)));
+        }
+        "stream_open" => {
+            // chaos_core stream_open <key_hex> <aad_hex> <n_maps> <blob_hex>  -> plaintext hex or INVALID
+            let key = parse_hex_bytes(&args[2]);
+            let aad = parse_hex_bytes(&args[3]);
+            let n_maps: usize = args[4].parse().expect("bad n_maps");
+            let blob = parse_hex_bytes(&args[5]);
+            match stream_open(&key, &blob, &aad, n_maps) {
+                Some(pt) => println!("{}", hex_of(&pt)),
+                None => println!("INVALID"),
+            }
         }
         "benchmm" => {
             // chaos_core benchmm <n_maps> <mbytes>  -> throughput of the REAL shipped combiner.
@@ -180,6 +224,10 @@ fn main() {
             eprintln!("       chaos_core from_master <key_hex> <nonce_hex> <n>");
             eprintln!("       chaos_core multimap <key_hex> <nonce_hex> <n_maps> <n>");
             eprintln!("       chaos_core ratchet <key_hex> <nonce_hex> <epoch_bytes> <n>");
+            eprintln!("       chaos_core aead_seal <key_hex> <nonce_hex> <aad_hex> <pt_hex> <n_maps>");
+            eprintln!("       chaos_core aead_open <key_hex> <aad_hex> <blob_hex> <n_maps>");
+            eprintln!("       chaos_core stream_seal <key_hex> <salt_hex> <aad_hex> <n_maps> <chunk_hex>...");
+            eprintln!("       chaos_core stream_open <key_hex> <aad_hex> <n_maps> <blob_hex>");
             eprintln!("       chaos_core bench <mbytes>");
             eprintln!("       chaos_core benchmm <n_maps> <mbytes>");
             eprintln!("       chaos_core timing <keys>");

@@ -44,10 +44,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from aead import _tag  # noqa: E402
+from commit import key_commitment  # noqa: E402
 from engine import M, DiscreteChaoticEngine, _finalize  # noqa: E402
 from multimap import MultiMapEngine  # noqa: E402
 from ratchet import RatchetEngine  # noqa: E402
 from siv import seal_siv  # noqa: E402
+from streaming import seal_stream  # noqa: E402
 
 VECTORS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vectors.json")
 
@@ -109,6 +112,33 @@ def compute_vectors() -> dict:
     blob = seal_siv(_KEY_BYTES, pt, aad)
     v["siv"] = {"key": _KEY_BYTES.hex(), "aad": aad.hex(),
                 "plaintext": pt.hex(), "blob": blob.hex()}
+
+    # 7. aead — the committing AEAD (aead.py), full stack end-to-end. seal() draws a RANDOM nonce, so
+    #    here we build the identical blob with a FIXED nonce (its only nondeterminism) so the Rust port
+    #    can pin a full encrypt/decrypt: nonce || commit || ciphertext || tag.
+    aead_pt = b"known-answer plaintext for the committing AEAD path."
+    aead_aad = b"kat-aead-aad"
+    aead_nonce = b"chaos-kat-nonce1"          # 16 bytes, fixed for the KAT only
+    aead_nmaps = 4
+    aead_ct = MultiMapEngine(_KEY_BYTES, aead_nonce, n_maps=aead_nmaps).encrypt(aead_pt)
+    aead_commit = key_commitment(_KEY_BYTES, aead_nonce, aead_aad)
+    aead_tag = _tag(_KEY_BYTES, aead_nonce, aead_commit, aead_aad, aead_ct)
+    v["aead"] = {"key": _KEY_BYTES.hex(), "nonce": aead_nonce.hex(), "aad": aead_aad.hex(),
+                 "plaintext": aead_pt.hex(), "n_maps": aead_nmaps,
+                 "blob": (aead_nonce + aead_commit + aead_ct + aead_tag).hex()}
+
+    # 8. stream — the streaming AEAD (streaming.py), multi-chunk, full self-delimiting blob. The salt
+    #    is the only nondeterminism, so we pin it; the blob freezes the header, per-chunk framing,
+    #    nonces and tags across several chunks (incl. the final-flag).
+    stream_chunks = [b"first streaming chunk", b"second chunk, a bit longer than the first", b"3rd"]
+    stream_aad = b"kat-stream-aad"
+    stream_salt = b"chaos-kat-salt!!"        # 16 bytes, fixed for the KAT only
+    stream_nmaps = 4
+    stream_blob = seal_stream(_KEY_BYTES, stream_chunks, stream_aad,
+                              n_maps=stream_nmaps, salt=stream_salt)
+    v["stream"] = {"key": _KEY_BYTES.hex(), "salt": stream_salt.hex(), "aad": stream_aad.hex(),
+                   "n_maps": stream_nmaps, "chunks": [c.hex() for c in stream_chunks],
+                   "plaintext": b"".join(stream_chunks).hex(), "blob": stream_blob.hex()}
 
     return v
 
