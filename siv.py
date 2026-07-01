@@ -47,15 +47,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 
+from aead import InvalidTag
 from commit import COMMIT_LEN, key_commitment, verify_commitment
-from multimap import DEFAULT_N_MAPS, MultiMapEngine
+from constants import DEFAULT_N_MAPS
+from multimap import MultiMapEngine
 
 SIV_LEN = 32              # HMAC-SHA256 output: serves as BOTH the IV and the auth tag
 _SIV_INFO = b"chaos-pwlcm-v1|siv-key"
-
-
-class InvalidTag(Exception):
-    """Raised when authentication fails — wrong key, or the ciphertext was tampered with."""
 
 
 def _siv_key(master_key: bytes) -> bytes:

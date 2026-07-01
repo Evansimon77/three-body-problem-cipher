@@ -30,7 +30,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine import M, DiscreteChaoticEngine  # noqa: E402
-from multimap import DEFAULT_N_MAPS  # noqa: E402
+from constants import DEFAULT_N_MAPS  # noqa: E402
 
 
 # ---------- PART A: show the real map is invertible (structure exists) ----------

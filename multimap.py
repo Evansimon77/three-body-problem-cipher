@@ -33,11 +33,8 @@ STILL UNVETTED. This defeats the naive per-map attack; it is not a proof of secu
 
 from __future__ import annotations
 
-import hashlib
-
-from engine import DiscreteChaoticEngine
-
-DEFAULT_N_MAPS = 4   # #2 decision (2026-06-28): 4 independent maps. See module docstring + map_count_attack.py.
+from constants import DEFAULT_N_MAPS
+from engine import DiscreteChaoticEngine, _kdf_hash, _derive_seed_control
 
 
 class MultiMapEngine:
@@ -64,12 +61,8 @@ class MultiMapEngine:
         """Derive one INDEPENDENT sub-map. The map index is folded into the hash so each map
         gets an unrelated (seed_key, control_parameter). Reuses the engine's own weak-parameter
         rejection in __init__."""
-        h = hashlib.sha512(
-            b"chaos-pwlcm-v1|multimap|" + index.to_bytes(2, "big")
-            + b"|" + master_key + b"|" + nonce
-        ).digest()
-        seed_key = int.from_bytes(h[0:24], "big")
-        control = int.from_bytes(h[24:48], "big")
+        h = _kdf_hash(b"chaos-pwlcm-v1|multimap|", master_key, nonce, index=index)
+        seed_key, control = _derive_seed_control(h)
         return DiscreteChaoticEngine(seed_key, control, nonce=0)  # nonce already in the hash
 
     def generate_byte(self) -> int:

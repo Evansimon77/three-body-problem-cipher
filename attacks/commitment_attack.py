@@ -26,15 +26,12 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from aead import open_ as aead_open  # noqa: E402
+from aead import InvalidTag, open_ as aead_open  # noqa: E402
 from aead import seal as aead_seal  # noqa: E402
-from aead import InvalidTag as AeadInvalidTag  # noqa: E402
 from commit import key_commitment  # noqa: E402
-from siv import InvalidTag as SivInvalidTag  # noqa: E402
 from siv import open_siv, seal_siv  # noqa: E402
 
-# aead.py and siv.py each define their OWN InvalidTag class, so catch both.
-_BAD = (AeadInvalidTag, SivInvalidTag)
+_BAD = InvalidTag
 
 MSG = b"send 100 to account #12345"
 

@@ -74,6 +74,20 @@ python attacks/dh_mitm.py          # passive eavesdropper fails; active MITM bre
 python bench/speed.py          # throughput vs AES/ChaCha
 ```
 
+## Naming conventions
+
+The Python and Rust halves follow their respective language conventions. The same concept may
+have a different name in each half — this is deliberate, not drift.
+
+| Concept | Python | Rust | Why |
+|---------|--------|------|-----|
+| Chaos engine class | `DiscreteChaoticEngine` | `ChaosEngine` | Python descriptive; Rust concise |
+| AEAD open | `open_()` | `aead_open()` | Trailing `_` avoids `open` builtin conflict |
+| AEAD seal | `seal()` | `aead_seal()` | Python module-namespaced; Rust exports globally |
+| Stream seal (one-shot) | `seal_stream()` | `stream_seal()` | Same shape, different word order — function name prefix vs module prefix |
+| Output mixer | `_finalize()` | `finalize()` | Python underscore = module-private; Rust `pub(crate)` = crate-private |
+| Map count default | `DEFAULT_N_MAPS` | `DEFAULT_N_MAPS` | Same name in both (the one constant kept identical) |
+
 ## Honest headline
 
 The construction is deterministic, statistically clean on the screens run, and has good

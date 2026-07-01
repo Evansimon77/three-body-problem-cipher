@@ -34,7 +34,8 @@ import hmac
 import os
 
 from commit import COMMIT_LEN, key_commitment, verify_commitment
-from multimap import DEFAULT_N_MAPS, MultiMapEngine
+from constants import DEFAULT_N_MAPS
+from multimap import MultiMapEngine
 
 NONCE_LEN = 16
 TAG_LEN = 32           # HMAC-SHA256

@@ -35,8 +35,8 @@ from __future__ import annotations
 
 import hashlib
 
+from constants import DEFAULT_N_MAPS
 from engine import DiscreteChaoticEngine
-from multimap import DEFAULT_N_MAPS
 
 
 class SeekableCTR:

@@ -1,23 +1,25 @@
-//! CLI for the chaos core.
+//! CLI for the Three-Body Problem Cipher — structured with clap.
 //!
-//!   chaos_core ks   <seed> <control> <nonce> <n>   -> prints n keystream bytes as hex
-//!   chaos_core bench <mbytes>                       -> generates that many MB, prints MB/s
-//!
-//! <seed>/<control>/<nonce> accept decimal or 0x-hex (up to 127 bits). The `ks` mode is what
-//! tests/test_rust_parity.py calls to compare against kat/vectors.json.
+//! Every subcommand prints exactly one line to stdout (hex bytes, or "INVALID", or
+//! a throughput line for bench/timing). The output format is the parsed contract:
+//! `tests/test_rust_parity.py` depends on it byte-for-byte.
 
 use std::time::Instant;
+
+use clap::{Parser, Subcommand};
 
 use chaos_core::{
     aead_open, aead_seal, auth_combine, auth_fingerprint, auth_initiator_finish,
     auth_responder_confirm, auth_responder_respond, auth_transcript, dh_public, dh_raw_shared,
     dh_shared_key, hybrid_combine, hybrid_initiator_key, hybrid_respond, mldsa_public_from_seed,
-    mldsa_sign, mldsa_verify, mlkem_decapsulate, mlkem_ek_from_seed, mlkem_encapsulate, stream_open,
-    stream_seal, twolock_open, twolock_seal, ChaosEngine, MultiMapEngine, RatchetAeadReceiver,
+    mldsa_sign, mldsa_verify, mlkem_decapsulate, mlkem_ek_from_seed, mlkem_encapsulate,
+    siv_open, siv_seal, SeekableCtr, stream_open, stream_seal,
+    twolock_open, twolock_seal, ChaosEngine, MultiMapEngine, RatchetAeadReceiver,
     RatchetAeadSender, RatchetEngine, DEFAULT_N_MAPS, TWOLOCK_AES, TWOLOCK_CHACHA,
 };
 
-/// Parse a hex byte string (e.g. the KAT key/nonce material) into raw bytes.
+// ---- helpers (unchanged from before clap) ----
+
 fn parse_hex_bytes(s: &str) -> Vec<u8> {
     let s = s.trim();
     assert!(s.len() % 2 == 0, "hex string must have even length");
@@ -35,8 +37,6 @@ fn hex_of(bytes: &[u8]) -> String {
     out
 }
 
-/// Map an inner-cipher name (or numeric id) to the two-locks alg byte. Accepts the Python shell's
-/// names so the same KAT keys ("aes-256-gcm" / "chacha20-poly1305") drive both implementations.
 fn parse_inner_alg(s: &str) -> u8 {
     match s.trim() {
         "aes" | "aes-256-gcm" | "1" | "0x01" => TWOLOCK_AES,
@@ -54,97 +54,347 @@ fn parse_u128(s: &str) -> u128 {
     }
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let mode = args.get(1).map(|s| s.as_str()).unwrap_or("");
+// ---- CLI definition ----
 
-    match mode {
-        "ks" => {
-            let seed = parse_u128(&args[2]);
-            let control = parse_u128(&args[3]);
-            let nonce = parse_u128(&args[4]);
-            let n: usize = args[5].parse().expect("bad length");
-            let ks = ChaosEngine::new(seed, control, nonce).keystream(n);
+#[derive(Parser)]
+#[command(name = "chaos_core", disable_colored_help = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+#[command(rename_all = "snake_case")]
+enum Command {
+    /// Single raw engine — seed/control/nonce as integers
+    Ks {
+        seed: String,
+        control: String,
+        nonce: String,
+        n: usize,
+    },
+    /// Single-engine keystream via the seed KDF
+    FromMaster {
+        key_hex: String,
+        nonce_hex: String,
+        n: usize,
+    },
+    /// N-map XOR-combined shipped keystream
+    #[command(name = "multimap")]
+    MultiMap {
+        key_hex: String,
+        nonce_hex: String,
+        n_maps: usize,
+        n: usize,
+    },
+    /// Forward-secret ratchet keystream
+    Ratchet {
+        key_hex: String,
+        nonce_hex: String,
+        epoch_bytes: usize,
+        n: usize,
+    },
+    /// Committing AEAD seal
+    AeadSeal {
+        key_hex: String,
+        nonce_hex: String,
+        aad_hex: String,
+        pt_hex: String,
+        n_maps: usize,
+    },
+    /// Committing AEAD open
+    AeadOpen {
+        key_hex: String,
+        aad_hex: String,
+        blob_hex: String,
+        n_maps: usize,
+    },
+    /// Streaming AEAD seal
+    StreamSeal {
+        key_hex: String,
+        salt_hex: String,
+        aad_hex: String,
+        n_maps: usize,
+        #[arg(num_args = 1..)]
+        chunks_hex: Vec<String>,
+    },
+    /// Streaming AEAD open
+    StreamOpen {
+        key_hex: String,
+        aad_hex: String,
+        n_maps: usize,
+        blob_hex: String,
+    },
+    /// Ratchet session AEAD seal
+    RatchetAeadSeal {
+        master_hex: String,
+        nonce_hex: String,
+        aad_hex: String,
+        n_maps: usize,
+        #[arg(num_args = 1..)]
+        inner_nonce_pt_pairs: Vec<String>,
+    },
+    /// Ratchet session AEAD open
+    RatchetAeadOpen {
+        master_hex: String,
+        nonce_hex: String,
+        aad_hex: String,
+        n_maps: usize,
+        #[arg(num_args = 1..)]
+        wires_hex: Vec<String>,
+    },
+    /// Two-locks seal (chaos outer + vetted inner)
+    TwolockSeal {
+        master_hex: String,
+        outer_nonce_hex: String,
+        inner_nonce_hex: String,
+        aad_hex: String,
+        pt_hex: String,
+        inner_alg: String,
+        n_maps: usize,
+    },
+    /// Two-locks open
+    TwolockOpen {
+        master_hex: String,
+        aad_hex: String,
+        blob_hex: String,
+        n_maps: usize,
+    },
+    /// SIV seal (nonce-misuse-resistant AEAD)
+    SivSeal {
+        key_hex: String,
+        aad_hex: String,
+        pt_hex: String,
+        n_maps: usize,
+    },
+    /// SIV open
+    SivOpen {
+        key_hex: String,
+        aad_hex: String,
+        blob_hex: String,
+        n_maps: usize,
+    },
+    /// CTR keystream (seekable, random-access)
+    CtrKs {
+        key_hex: String,
+        nonce_hex: String,
+        n_maps: usize,
+        offset: usize,
+        n: usize,
+    },
+    /// CTR encrypt (seekable, random-access)
+    CtrEncrypt {
+        key_hex: String,
+        nonce_hex: String,
+        n_maps: usize,
+        offset: usize,
+        pt_hex: String,
+    },
+    /// Classical DH public key
+    DhPublic {
+        private_hex: String,
+    },
+    /// Classical DH raw shared secret
+    DhRawShared {
+        private_hex: String,
+        peer_public_hex: String,
+    },
+    /// Classical DH derived shared key
+    DhSharedKey {
+        private_hex: String,
+        peer_public_hex: String,
+        info_hex: String,
+    },
+    /// ML-KEM encapsulation key from seed
+    #[command(name = "mlkem_ek")]
+    MlkemEk {
+        seed_hex: String,
+    },
+    /// ML-KEM encapsulate
+    #[command(name = "mlkem_encapsulate")]
+    MlkemEncap {
+        ek_hex: String,
+        m_hex: String,
+    },
+    /// ML-KEM decapsulate
+    #[command(name = "mlkem_decapsulate")]
+    MlkemDecap {
+        seed_hex: String,
+        ct_hex: String,
+    },
+    /// Hybrid key combine
+    HybridCombine {
+        classical_hex: String,
+        pq_hex: String,
+        info_hex: String,
+        dh_a_hex: String,
+        dh_b_hex: String,
+        kem_pk_a_hex: String,
+        kem_ct_hex: String,
+    },
+    /// Hybrid responder
+    HybridRespond {
+        dh_private_b_hex: String,
+        dh_peer_a_hex: String,
+        kem_pk_a_hex: String,
+        m_hex: String,
+        info_hex: String,
+    },
+    /// Hybrid initiator key
+    HybridInitiatorKey {
+        dh_private_a_hex: String,
+        kem_seed_hex: String,
+        dh_peer_b_hex: String,
+        kem_ct_hex: String,
+        info_hex: String,
+    },
+    /// ML-DSA verifying key from seed
+    MldsaPublic {
+        seed_hex: String,
+    },
+    /// ML-DSA sign (deterministic)
+    MldsaSign {
+        seed_hex: String,
+        msg_hex: String,
+    },
+    /// ML-DSA verify
+    MldsaVerify {
+        public_hex: String,
+        msg_hex: String,
+        sig_hex: String,
+    },
+    /// Auth fingerprint
+    AuthFingerprint {
+        sig_public_hex: String,
+        static_public_hex: String,
+    },
+    /// Auth transcript
+    AuthTranscript {
+        init_sig_pub: String,
+        init_static_pub: String,
+        resp_sig_pub: String,
+        resp_static_pub: String,
+        dh_i: String,
+        kem_pk_i: String,
+        dh_r: String,
+        kem_ct: String,
+    },
+    /// Auth combine
+    AuthCombine {
+        ee_hex: String,
+        pq_hex: String,
+        es_hex: String,
+        se_hex: String,
+        transcript_hex: String,
+        info_hex: String,
+    },
+    /// Auth responder respond
+    AuthResponderRespond {
+        resp_sig_seed: String,
+        resp_static_priv: String,
+        resp_eph_priv: String,
+        init_sig_pub: String,
+        init_static_pub: String,
+        dh_i: String,
+        kem_pk_i: String,
+        kem_m: String,
+        info: String,
+    },
+    /// Auth initiator finish
+    AuthInitiatorFinish {
+        init_sig_seed: String,
+        init_static_priv: String,
+        init_eph_priv: String,
+        init_kem_seed: String,
+        resp_sig_pub: String,
+        resp_static_pub: String,
+        dh_r: String,
+        kem_ct: String,
+        sig_r: String,
+        info: String,
+    },
+    /// Auth responder confirm
+    AuthResponderConfirm {
+        transcript_hex: String,
+        init_sig_pub_hex: String,
+        sig_i_hex: String,
+    },
+    /// Benchmark the shipped multimap combiner
+    #[command(name = "benchmm")]
+    BenchMm {
+        n_maps: Option<usize>,
+        #[arg(default_value = "64")]
+        mbytes: usize,
+    },
+    /// Benchmark single-engine throughput
+    Bench {
+        #[arg(default_value = "64")]
+        mbytes: usize,
+    },
+    /// Constant-time probe: measure key-dependent timing spread
+    Timing {
+        #[arg(default_value = "64")]
+        keys: usize,
+    },
+}
+
+// ---- main dispatcher ----
+
+fn main() {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Command::Ks { seed, control, nonce, n } => {
+            let ks = ChaosEngine::new(parse_u128(&seed), parse_u128(&control), parse_u128(&nonce)).keystream(n);
             println!("{}", hex_of(&ks));
         }
-        "from_master" => {
-            // chaos_core from_master <key_hex> <nonce_hex> <n>  -> single-engine keystream via the seed KDF
-            let key = parse_hex_bytes(&args[2]);
-            let nonce = parse_hex_bytes(&args[3]);
-            let n: usize = args[4].parse().expect("bad length");
-            let ks = ChaosEngine::from_master(&key, &nonce).keystream(n);
+        Command::FromMaster { key_hex, nonce_hex, n } => {
+            let ks = ChaosEngine::from_master(&parse_hex_bytes(&key_hex), &parse_hex_bytes(&nonce_hex)).keystream(n);
             println!("{}", hex_of(&ks));
         }
-        "multimap" => {
-            // chaos_core multimap <key_hex> <nonce_hex> <n_maps> <n>  -> XOR-combined shipped keystream
-            let key = parse_hex_bytes(&args[2]);
-            let nonce = parse_hex_bytes(&args[3]);
-            let n_maps: usize = args[4].parse().expect("bad n_maps");
-            let n: usize = args[5].parse().expect("bad length");
-            let ks = MultiMapEngine::new(&key, &nonce, n_maps).keystream(n);
+        Command::MultiMap { key_hex, nonce_hex, n_maps, n } => {
+            let ks = MultiMapEngine::new(&parse_hex_bytes(&key_hex), &parse_hex_bytes(&nonce_hex), n_maps).keystream(n);
             println!("{}", hex_of(&ks));
         }
-        "ratchet" => {
-            // chaos_core ratchet <key_hex> <nonce_hex> <epoch_bytes> <n>  -> forward-secret keystream
-            // n_maps is the locked default (4); epoch_bytes sets the re-key boundary (must match peer).
-            let key = parse_hex_bytes(&args[2]);
-            let nonce = parse_hex_bytes(&args[3]);
-            let epoch_bytes: usize = args[4].parse().expect("bad epoch_bytes");
-            let n: usize = args[5].parse().expect("bad length");
-            let ks = RatchetEngine::new(&key, &nonce, epoch_bytes, DEFAULT_N_MAPS).keystream(n);
+        Command::Ratchet { key_hex, nonce_hex, epoch_bytes, n } => {
+            let ks = RatchetEngine::new(&parse_hex_bytes(&key_hex), &parse_hex_bytes(&nonce_hex), epoch_bytes, DEFAULT_N_MAPS).keystream(n);
             println!("{}", hex_of(&ks));
         }
-        "aead_seal" => {
-            // chaos_core aead_seal <key_hex> <nonce_hex> <aad_hex> <pt_hex> <n_maps>  -> blob hex
-            let key = parse_hex_bytes(&args[2]);
-            let nonce = parse_hex_bytes(&args[3]);
-            let aad = parse_hex_bytes(&args[4]);
-            let pt = parse_hex_bytes(&args[5]);
-            let n_maps: usize = args[6].parse().expect("bad n_maps");
-            println!("{}", hex_of(&aead_seal(&key, &nonce, &pt, &aad, n_maps)));
+        Command::AeadSeal { key_hex, nonce_hex, aad_hex, pt_hex, n_maps } => {
+            let blob = aead_seal(&parse_hex_bytes(&key_hex), &parse_hex_bytes(&nonce_hex), &parse_hex_bytes(&pt_hex), &parse_hex_bytes(&aad_hex), n_maps);
+            println!("{}", hex_of(&blob));
         }
-        "aead_open" => {
-            // chaos_core aead_open <key_hex> <aad_hex> <blob_hex> <n_maps>  -> plaintext hex or INVALID
-            let key = parse_hex_bytes(&args[2]);
-            let aad = parse_hex_bytes(&args[3]);
-            let blob = parse_hex_bytes(&args[4]);
-            let n_maps: usize = args[5].parse().expect("bad n_maps");
+        Command::AeadOpen { key_hex, aad_hex, blob_hex, n_maps } => {
+            let key = parse_hex_bytes(&key_hex);
+            let blob = parse_hex_bytes(&blob_hex);
+            let aad = parse_hex_bytes(&aad_hex);
             match aead_open(&key, &blob, &aad, n_maps) {
                 Some(pt) => println!("{}", hex_of(&pt)),
                 None => println!("INVALID"),
             }
         }
-        "stream_seal" => {
-            // chaos_core stream_seal <key_hex> <salt_hex> <aad_hex> <n_maps> <chunk_hex>...
-            let key = parse_hex_bytes(&args[2]);
-            let salt = parse_hex_bytes(&args[3]);
-            let aad = parse_hex_bytes(&args[4]);
-            let n_maps: usize = args[5].parse().expect("bad n_maps");
-            let chunk_vecs: Vec<Vec<u8>> = args[6..].iter().map(|a| parse_hex_bytes(a)).collect();
+        Command::StreamSeal { key_hex, salt_hex, aad_hex, n_maps, chunks_hex } => {
+            let key = parse_hex_bytes(&key_hex);
+            let salt = parse_hex_bytes(&salt_hex);
+            let aad = parse_hex_bytes(&aad_hex);
+            let chunk_vecs: Vec<Vec<u8>> = chunks_hex.iter().map(|a| parse_hex_bytes(a)).collect();
             let chunks: Vec<&[u8]> = chunk_vecs.iter().map(|v| v.as_slice()).collect();
             println!("{}", hex_of(&stream_seal(&key, &salt, &chunks, &aad, n_maps)));
         }
-        "stream_open" => {
-            // chaos_core stream_open <key_hex> <aad_hex> <n_maps> <blob_hex>  -> plaintext hex or INVALID
-            let key = parse_hex_bytes(&args[2]);
-            let aad = parse_hex_bytes(&args[3]);
-            let n_maps: usize = args[4].parse().expect("bad n_maps");
-            let blob = parse_hex_bytes(&args[5]);
+        Command::StreamOpen { key_hex, aad_hex, n_maps, blob_hex } => {
+            let key = parse_hex_bytes(&key_hex);
+            let blob = parse_hex_bytes(&blob_hex);
+            let aad = parse_hex_bytes(&aad_hex);
             match stream_open(&key, &blob, &aad, n_maps) {
                 Some(pt) => println!("{}", hex_of(&pt)),
                 None => println!("INVALID"),
             }
         }
-        "ratchet_aead_seal" => {
-            // chaos_core ratchet_aead_seal <master_hex> <nonce_hex> <aad_hex> <n_maps>
-            //     <inner_nonce_hex> <pt_hex> [<inner_nonce_hex> <pt_hex> ...]
-            // Drives a sender session through the messages (index 0,1,2,...); prints each wire blob
-            // hex, space-separated. Each message takes its own explicit inner nonce.
-            let master = parse_hex_bytes(&args[2]);
-            let nonce = parse_hex_bytes(&args[3]);
-            let aad = parse_hex_bytes(&args[4]);
-            let n_maps: usize = args[5].parse().expect("bad n_maps");
-            let rest = &args[6..];
+        Command::RatchetAeadSeal { master_hex, nonce_hex, aad_hex, n_maps, inner_nonce_pt_pairs } => {
+            let master = parse_hex_bytes(&master_hex);
+            let nonce = parse_hex_bytes(&nonce_hex);
+            let aad = parse_hex_bytes(&aad_hex);
+            let rest = inner_nonce_pt_pairs;
             assert!(rest.len().is_multiple_of(2), "need <inner_nonce> <pt> pairs");
             let mut sender = RatchetAeadSender::new(&master, &nonce, &aad, n_maps);
             let wires: Vec<String> = rest
@@ -157,402 +407,270 @@ fn main() {
                 .collect();
             println!("{}", wires.join(" "));
         }
-        "ratchet_aead_open" => {
-            // chaos_core ratchet_aead_open <master_hex> <nonce_hex> <aad_hex> <n_maps> <wire_hex>...
-            // Drives a receiver session over the wires in order; prints each plaintext hex
-            // space-separated, or "INVALID" for the whole run if ANY message fails to open.
-            let master = parse_hex_bytes(&args[2]);
-            let nonce = parse_hex_bytes(&args[3]);
-            let aad = parse_hex_bytes(&args[4]);
-            let n_maps: usize = args[5].parse().expect("bad n_maps");
+        Command::RatchetAeadOpen { master_hex, nonce_hex, aad_hex, n_maps, wires_hex } => {
+            let master = parse_hex_bytes(&master_hex);
+            let nonce = parse_hex_bytes(&nonce_hex);
+            let aad = parse_hex_bytes(&aad_hex);
             let mut receiver = RatchetAeadReceiver::new(&master, &nonce, &aad, n_maps);
             let mut outs: Vec<String> = Vec::new();
             let mut ok = true;
-            for w in &args[6..] {
+            for w in &wires_hex {
                 let wire = parse_hex_bytes(w);
                 match receiver.open(&wire) {
                     Some(pt) => outs.push(hex_of(&pt)),
-                    None => {
-                        ok = false;
-                        break;
-                    }
+                    None => { ok = false; break; }
                 }
             }
-            if ok {
-                println!("{}", outs.join(" "));
-            } else {
-                println!("INVALID");
-            }
+            if ok { println!("{}", outs.join(" ")); }
+            else { println!("INVALID"); }
         }
-        "twolock_seal" => {
-            // chaos_core twolock_seal <master_hex> <outer_nonce_hex> <inner_nonce_hex> <aad_hex>
-            //     <pt_hex> <inner_alg> <n_maps>  -> two-locks blob hex (or INVALID for an unknown alg)
-            // inner_alg: aes-256-gcm | chacha20-poly1305. Both nonces are explicit so the KAT can pin them.
-            let master = parse_hex_bytes(&args[2]);
-            let outer_nonce = parse_hex_bytes(&args[3]);
-            let inner_nonce = parse_hex_bytes(&args[4]);
-            let aad = parse_hex_bytes(&args[5]);
-            let pt = parse_hex_bytes(&args[6]);
-            let alg = parse_inner_alg(&args[7]);
-            let n_maps: usize = args[8].parse().expect("bad n_maps");
+        Command::TwolockSeal { master_hex, outer_nonce_hex, inner_nonce_hex, aad_hex, pt_hex, inner_alg, n_maps } => {
+            let master = parse_hex_bytes(&master_hex);
+            let outer_nonce = parse_hex_bytes(&outer_nonce_hex);
+            let inner_nonce = parse_hex_bytes(&inner_nonce_hex);
+            let aad = parse_hex_bytes(&aad_hex);
+            let pt = parse_hex_bytes(&pt_hex);
+            let alg = parse_inner_alg(&inner_alg);
             match twolock_seal(&master, &outer_nonce, &inner_nonce, &pt, &aad, alg, n_maps) {
                 Some(blob) => println!("{}", hex_of(&blob)),
                 None => println!("INVALID"),
             }
         }
-        "twolock_open" => {
-            // chaos_core twolock_open <master_hex> <aad_hex> <blob_hex> <n_maps>  -> plaintext hex or INVALID
-            // The inner cipher is self-describing (read from the authenticated inner blob), so it is not given.
-            let master = parse_hex_bytes(&args[2]);
-            let aad = parse_hex_bytes(&args[3]);
-            let blob = parse_hex_bytes(&args[4]);
-            let n_maps: usize = args[5].parse().expect("bad n_maps");
+        Command::TwolockOpen { master_hex, aad_hex, blob_hex, n_maps } => {
+            let master = parse_hex_bytes(&master_hex);
+            let blob = parse_hex_bytes(&blob_hex);
+            let aad = parse_hex_bytes(&aad_hex);
             match twolock_open(&master, &blob, &aad, n_maps) {
                 Some(pt) => println!("{}", hex_of(&pt)),
                 None => println!("INVALID"),
             }
         }
-        "dh_public" => {
-            // chaos_core dh_public <private_hex>  -> g^private mod p as 256-byte hex (or INVALID)
-            let private = parse_hex_bytes(&args[2]);
-            match dh_public(&private) {
+        Command::SivSeal { key_hex, aad_hex, pt_hex, n_maps } => {
+            let key = parse_hex_bytes(&key_hex);
+            let aad = parse_hex_bytes(&aad_hex);
+            let pt = parse_hex_bytes(&pt_hex);
+            println!("{}", hex_of(&siv_seal(&key, &pt, &aad, n_maps)));
+        }
+        Command::SivOpen { key_hex, aad_hex, blob_hex, n_maps } => {
+            let key = parse_hex_bytes(&key_hex);
+            let aad = parse_hex_bytes(&aad_hex);
+            let blob = parse_hex_bytes(&blob_hex);
+            match siv_open(&key, &blob, &aad, n_maps) {
+                Some(pt) => println!("{}", hex_of(&pt)),
+                None => println!("INVALID"),
+            }
+        }
+        Command::CtrKs { key_hex, nonce_hex, n_maps, offset, n } => {
+            let key = parse_hex_bytes(&key_hex);
+            let nonce = parse_hex_bytes(&nonce_hex);
+            let ks = SeekableCtr::new(&key, &nonce, n_maps).keystream(n, offset);
+            println!("{}", hex_of(&ks));
+        }
+        Command::CtrEncrypt { key_hex, nonce_hex, n_maps, offset, pt_hex } => {
+            let key = parse_hex_bytes(&key_hex);
+            let nonce = parse_hex_bytes(&nonce_hex);
+            let pt = parse_hex_bytes(&pt_hex);
+            let ct = SeekableCtr::new(&key, &nonce, n_maps).encrypt(&pt, offset);
+            println!("{}", hex_of(&ct));
+        }
+        Command::DhPublic { private_hex } => {
+            match dh_public(&parse_hex_bytes(&private_hex)) {
                 Some(p) => println!("{}", hex_of(&p)),
                 None => println!("INVALID"),
             }
         }
-        "dh_raw_shared" => {
-            // chaos_core dh_raw_shared <private_hex> <peer_public_hex>  -> raw g^(ab) 256-byte hex or INVALID
-            let private = parse_hex_bytes(&args[2]);
-            let peer = parse_hex_bytes(&args[3]);
-            match dh_raw_shared(&private, &peer) {
+        Command::DhRawShared { private_hex, peer_public_hex } => {
+            match dh_raw_shared(&parse_hex_bytes(&private_hex), &parse_hex_bytes(&peer_public_hex)) {
                 Some(s) => println!("{}", hex_of(&s)),
                 None => println!("INVALID"),
             }
         }
-        "dh_shared_key" => {
-            // chaos_core dh_shared_key <private_hex> <peer_public_hex> <info_hex>  -> 32-byte key hex or INVALID
-            let private = parse_hex_bytes(&args[2]);
-            let peer = parse_hex_bytes(&args[3]);
-            let info = parse_hex_bytes(&args[4]);
-            match dh_shared_key(&private, &peer, &info) {
+        Command::DhSharedKey { private_hex, peer_public_hex, info_hex } => {
+            match dh_shared_key(&parse_hex_bytes(&private_hex), &parse_hex_bytes(&peer_public_hex), &parse_hex_bytes(&info_hex)) {
                 Some(k) => println!("{}", hex_of(&k)),
                 None => println!("INVALID"),
             }
         }
-        "mlkem_ek" => {
-            // chaos_core mlkem_ek <seed_hex>  -> 1184-byte encapsulation key hex (or INVALID)
-            let seed = parse_hex_bytes(&args[2]);
-            match mlkem_ek_from_seed(&seed) {
+        Command::MlkemEk { seed_hex } => {
+            match mlkem_ek_from_seed(&parse_hex_bytes(&seed_hex)) {
                 Some(ek) => println!("{}", hex_of(&ek)),
                 None => println!("INVALID"),
             }
         }
-        "mlkem_encapsulate" => {
-            // chaos_core mlkem_encapsulate <ek_hex> <m_hex>  -> "<ct_hex> <ss_hex>" or INVALID
-            let ek = parse_hex_bytes(&args[2]);
-            let m = parse_hex_bytes(&args[3]);
-            match mlkem_encapsulate(&ek, &m) {
+        Command::MlkemEncap { ek_hex, m_hex } => {
+            match mlkem_encapsulate(&parse_hex_bytes(&ek_hex), &parse_hex_bytes(&m_hex)) {
                 Some((ct, ss)) => println!("{} {}", hex_of(&ct), hex_of(&ss)),
                 None => println!("INVALID"),
             }
         }
-        "mlkem_decapsulate" => {
-            // chaos_core mlkem_decapsulate <seed_hex> <ct_hex>  -> 32-byte shared secret hex or INVALID
-            let seed = parse_hex_bytes(&args[2]);
-            let ct = parse_hex_bytes(&args[3]);
-            match mlkem_decapsulate(&seed, &ct) {
+        Command::MlkemDecap { seed_hex, ct_hex } => {
+            match mlkem_decapsulate(&parse_hex_bytes(&seed_hex), &parse_hex_bytes(&ct_hex)) {
                 Some(ss) => println!("{}", hex_of(&ss)),
                 None => println!("INVALID"),
             }
         }
-        "hybrid_combine" => {
-            // chaos_core hybrid_combine <classical_hex> <pq_hex> <info_hex> <dh_a_hex> <dh_b_hex>
-            //     <kem_pk_a_hex> <kem_ct_hex>  -> 32-byte hybrid session key hex
-            let classical = parse_hex_bytes(&args[2]);
-            let pq = parse_hex_bytes(&args[3]);
-            let info = parse_hex_bytes(&args[4]);
-            let dh_a = parse_hex_bytes(&args[5]);
-            let dh_b = parse_hex_bytes(&args[6]);
-            let kem_pk_a = parse_hex_bytes(&args[7]);
-            let kem_ct = parse_hex_bytes(&args[8]);
-            let key = hybrid_combine(&classical, &pq, &info, &dh_a, &dh_b, &kem_pk_a, &kem_ct);
+        Command::HybridCombine { classical_hex, pq_hex, info_hex, dh_a_hex, dh_b_hex, kem_pk_a_hex, kem_ct_hex } => {
+            let key = hybrid_combine(
+                &parse_hex_bytes(&classical_hex), &parse_hex_bytes(&pq_hex), &parse_hex_bytes(&info_hex),
+                &parse_hex_bytes(&dh_a_hex), &parse_hex_bytes(&dh_b_hex),
+                &parse_hex_bytes(&kem_pk_a_hex), &parse_hex_bytes(&kem_ct_hex),
+            );
             println!("{}", hex_of(&key));
         }
-        "hybrid_respond" => {
-            // chaos_core hybrid_respond <dh_private_b_hex> <dh_peer_a_hex> <kem_pk_a_hex> <m_hex> <info_hex>
-            //     -> "<dh_b_public_hex> <kem_ct_hex> <key_hex>" or INVALID
-            let dh_private_b = parse_hex_bytes(&args[2]);
-            let dh_peer_a = parse_hex_bytes(&args[3]);
-            let kem_pk_a = parse_hex_bytes(&args[4]);
-            let m = parse_hex_bytes(&args[5]);
-            let info = parse_hex_bytes(&args[6]);
-            match hybrid_respond(&dh_private_b, &dh_peer_a, &kem_pk_a, &m, &info) {
-                Some((dh_b, ct, key)) => {
-                    println!("{} {} {}", hex_of(&dh_b), hex_of(&ct), hex_of(&key))
-                }
+        Command::HybridRespond { dh_private_b_hex, dh_peer_a_hex, kem_pk_a_hex, m_hex, info_hex } => {
+            match hybrid_respond(&parse_hex_bytes(&dh_private_b_hex), &parse_hex_bytes(&dh_peer_a_hex),
+                &parse_hex_bytes(&kem_pk_a_hex), &parse_hex_bytes(&m_hex), &parse_hex_bytes(&info_hex)) {
+                Some((dh_b, ct, key)) => println!("{} {} {}", hex_of(&dh_b), hex_of(&ct), hex_of(&key)),
                 None => println!("INVALID"),
             }
         }
-        "hybrid_initiator_key" => {
-            // chaos_core hybrid_initiator_key <dh_private_a_hex> <kem_seed_hex> <dh_peer_b_hex>
-            //     <kem_ct_hex> <info_hex>  -> 32-byte session key hex or INVALID
-            let dh_private_a = parse_hex_bytes(&args[2]);
-            let kem_seed = parse_hex_bytes(&args[3]);
-            let dh_peer_b = parse_hex_bytes(&args[4]);
-            let kem_ct = parse_hex_bytes(&args[5]);
-            let info = parse_hex_bytes(&args[6]);
-            match hybrid_initiator_key(&dh_private_a, &kem_seed, &dh_peer_b, &kem_ct, &info) {
+        Command::HybridInitiatorKey { dh_private_a_hex, kem_seed_hex, dh_peer_b_hex, kem_ct_hex, info_hex } => {
+            match hybrid_initiator_key(&parse_hex_bytes(&dh_private_a_hex), &parse_hex_bytes(&kem_seed_hex),
+                &parse_hex_bytes(&dh_peer_b_hex), &parse_hex_bytes(&kem_ct_hex), &parse_hex_bytes(&info_hex)) {
                 Some(k) => println!("{}", hex_of(&k)),
                 None => println!("INVALID"),
             }
         }
-        "mldsa_public" => {
-            // chaos_core mldsa_public <seed_hex>  -> 1952-byte ML-DSA-65 verifying key hex or INVALID
-            let seed = parse_hex_bytes(&args[2]);
-            match mldsa_public_from_seed(&seed) {
+        Command::MldsaPublic { seed_hex } => {
+            match mldsa_public_from_seed(&parse_hex_bytes(&seed_hex)) {
                 Some(pk) => println!("{}", hex_of(&pk)),
                 None => println!("INVALID"),
             }
         }
-        "mldsa_sign" => {
-            // chaos_core mldsa_sign <seed_hex> <msg_hex>  -> 3309-byte deterministic signature hex or INVALID
-            let seed = parse_hex_bytes(&args[2]);
-            let msg = parse_hex_bytes(&args[3]);
-            match mldsa_sign(&seed, &msg) {
+        Command::MldsaSign { seed_hex, msg_hex } => {
+            match mldsa_sign(&parse_hex_bytes(&seed_hex), &parse_hex_bytes(&msg_hex)) {
                 Some(sig) => println!("{}", hex_of(&sig)),
                 None => println!("INVALID"),
             }
         }
-        "mldsa_verify" => {
-            // chaos_core mldsa_verify <public_hex> <msg_hex> <sig_hex>  -> OK or FAIL
-            let public = parse_hex_bytes(&args[2]);
-            let msg = parse_hex_bytes(&args[3]);
-            let sig = parse_hex_bytes(&args[4]);
-            println!("{}", if mldsa_verify(&public, &msg, &sig) { "OK" } else { "FAIL" });
+        Command::MldsaVerify { public_hex, msg_hex, sig_hex } => {
+            let result = mldsa_verify(&parse_hex_bytes(&public_hex), &parse_hex_bytes(&msg_hex), &parse_hex_bytes(&sig_hex));
+            println!("{}", if result { "OK" } else { "FAIL" });
         }
-        "auth_fingerprint" => {
-            // chaos_core auth_fingerprint <sig_public_hex> <static_public_hex>  -> 8-byte fingerprint hex
-            let sig_public = parse_hex_bytes(&args[2]);
-            let static_public = parse_hex_bytes(&args[3]);
-            println!("{}", hex_of(&auth_fingerprint(&sig_public, &static_public)));
+        Command::AuthFingerprint { sig_public_hex, static_public_hex } => {
+            let fp = auth_fingerprint(&parse_hex_bytes(&sig_public_hex), &parse_hex_bytes(&static_public_hex));
+            println!("{}", hex_of(&fp));
         }
-        "auth_transcript" => {
-            // chaos_core auth_transcript <init_sig_pub> <init_static_pub> <resp_sig_pub> <resp_static_pub>
-            //     <dh_i> <kem_pk_i> <dh_r> <kem_ct>  -> 64-byte transcript digest hex
-            let init_sig_pub = parse_hex_bytes(&args[2]);
-            let init_static_pub = parse_hex_bytes(&args[3]);
-            let resp_sig_pub = parse_hex_bytes(&args[4]);
-            let resp_static_pub = parse_hex_bytes(&args[5]);
-            let dh_i = parse_hex_bytes(&args[6]);
-            let kem_pk_i = parse_hex_bytes(&args[7]);
-            let dh_r = parse_hex_bytes(&args[8]);
-            let kem_ct = parse_hex_bytes(&args[9]);
+        Command::AuthTranscript { init_sig_pub, init_static_pub, resp_sig_pub, resp_static_pub, dh_i, kem_pk_i, dh_r, kem_ct } => {
             let tr = auth_transcript(
-                &init_sig_pub, &init_static_pub, &resp_sig_pub, &resp_static_pub, &dh_i, &kem_pk_i,
-                &dh_r, &kem_ct,
+                &parse_hex_bytes(&init_sig_pub), &parse_hex_bytes(&init_static_pub),
+                &parse_hex_bytes(&resp_sig_pub), &parse_hex_bytes(&resp_static_pub),
+                &parse_hex_bytes(&dh_i), &parse_hex_bytes(&kem_pk_i),
+                &parse_hex_bytes(&dh_r), &parse_hex_bytes(&kem_ct),
             );
             println!("{}", hex_of(&tr));
         }
-        "auth_combine" => {
-            // chaos_core auth_combine <ee_hex> <pq_hex> <es_hex> <se_hex> <transcript_hex> <info_hex>
-            //     -> 32-byte authenticated session key hex
-            let ee = parse_hex_bytes(&args[2]);
-            let pq = parse_hex_bytes(&args[3]);
-            let es = parse_hex_bytes(&args[4]);
-            let se = parse_hex_bytes(&args[5]);
-            let transcript = parse_hex_bytes(&args[6]);
-            let info = parse_hex_bytes(&args[7]);
-            println!("{}", hex_of(&auth_combine(&ee, &pq, &es, &se, &transcript, &info)));
+        Command::AuthCombine { ee_hex, pq_hex, es_hex, se_hex, transcript_hex, info_hex } => {
+            let key = auth_combine(
+                &parse_hex_bytes(&ee_hex), &parse_hex_bytes(&pq_hex),
+                &parse_hex_bytes(&es_hex), &parse_hex_bytes(&se_hex),
+                &parse_hex_bytes(&transcript_hex), &parse_hex_bytes(&info_hex),
+            );
+            println!("{}", hex_of(&key));
         }
-        "auth_responder_respond" => {
-            // chaos_core auth_responder_respond <resp_sig_seed> <resp_static_priv> <resp_eph_priv>
-            //     <init_sig_pub> <init_static_pub> <dh_i> <kem_pk_i> <kem_m> <info>
-            //     -> "<dh_r> <kem_ct> <sig_r> <key> <transcript>" or INVALID
-            let resp_sig_seed = parse_hex_bytes(&args[2]);
-            let resp_static_priv = parse_hex_bytes(&args[3]);
-            let resp_eph_priv = parse_hex_bytes(&args[4]);
-            let init_sig_pub = parse_hex_bytes(&args[5]);
-            let init_static_pub = parse_hex_bytes(&args[6]);
-            let dh_i = parse_hex_bytes(&args[7]);
-            let kem_pk_i = parse_hex_bytes(&args[8]);
-            let kem_m = parse_hex_bytes(&args[9]);
-            let info = parse_hex_bytes(&args[10]);
+        Command::AuthResponderRespond { resp_sig_seed, resp_static_priv, resp_eph_priv,
+            init_sig_pub, init_static_pub, dh_i, kem_pk_i, kem_m, info } => {
             match auth_responder_respond(
-                &resp_sig_seed, &resp_static_priv, &resp_eph_priv, &init_sig_pub, &init_static_pub,
-                &dh_i, &kem_pk_i, &kem_m, &info,
+                &parse_hex_bytes(&resp_sig_seed), &parse_hex_bytes(&resp_static_priv),
+                &parse_hex_bytes(&resp_eph_priv), &parse_hex_bytes(&init_sig_pub),
+                &parse_hex_bytes(&init_static_pub), &parse_hex_bytes(&dh_i),
+                &parse_hex_bytes(&kem_pk_i), &parse_hex_bytes(&kem_m),
+                &parse_hex_bytes(&info),
             ) {
-                Some((dh_r, kem_ct, sig_r, key, transcript)) => println!(
-                    "{} {} {} {} {}",
-                    hex_of(&dh_r), hex_of(&kem_ct), hex_of(&sig_r), hex_of(&key), hex_of(&transcript)
-                ),
+                Some((dh_r, kem_ct, sig_r, key, transcript)) => println!("{} {} {} {} {}",
+                    hex_of(&dh_r), hex_of(&kem_ct), hex_of(&sig_r), hex_of(&key), hex_of(&transcript)),
                 None => println!("INVALID"),
             }
         }
-        "auth_initiator_finish" => {
-            // chaos_core auth_initiator_finish <init_sig_seed> <init_static_priv> <init_eph_priv>
-            //     <init_kem_seed> <resp_sig_pub> <resp_static_pub> <dh_r> <kem_ct> <sig_r> <info>
-            //     -> "<key> <sig_i>" or INVALID (responder signature failed / bad input)
-            let init_sig_seed = parse_hex_bytes(&args[2]);
-            let init_static_priv = parse_hex_bytes(&args[3]);
-            let init_eph_priv = parse_hex_bytes(&args[4]);
-            let init_kem_seed = parse_hex_bytes(&args[5]);
-            let resp_sig_pub = parse_hex_bytes(&args[6]);
-            let resp_static_pub = parse_hex_bytes(&args[7]);
-            let dh_r = parse_hex_bytes(&args[8]);
-            let kem_ct = parse_hex_bytes(&args[9]);
-            let sig_r = parse_hex_bytes(&args[10]);
-            let info = parse_hex_bytes(&args[11]);
+        Command::AuthInitiatorFinish { init_sig_seed, init_static_priv, init_eph_priv,
+            init_kem_seed, resp_sig_pub, resp_static_pub, dh_r, kem_ct, sig_r, info } => {
             match auth_initiator_finish(
-                &init_sig_seed, &init_static_priv, &init_eph_priv, &init_kem_seed, &resp_sig_pub,
-                &resp_static_pub, &dh_r, &kem_ct, &sig_r, &info,
+                &parse_hex_bytes(&init_sig_seed), &parse_hex_bytes(&init_static_priv),
+                &parse_hex_bytes(&init_eph_priv), &parse_hex_bytes(&init_kem_seed),
+                &parse_hex_bytes(&resp_sig_pub), &parse_hex_bytes(&resp_static_pub),
+                &parse_hex_bytes(&dh_r), &parse_hex_bytes(&kem_ct),
+                &parse_hex_bytes(&sig_r), &parse_hex_bytes(&info),
             ) {
                 Some((key, sig_i)) => println!("{} {}", hex_of(&key), hex_of(&sig_i)),
                 None => println!("INVALID"),
             }
         }
-        "auth_responder_confirm" => {
-            // chaos_core auth_responder_confirm <transcript_hex> <init_sig_pub_hex> <sig_i_hex>  -> OK or FAIL
-            let transcript = parse_hex_bytes(&args[2]);
-            let init_sig_pub = parse_hex_bytes(&args[3]);
-            let sig_i = parse_hex_bytes(&args[4]);
-            println!(
-                "{}",
-                if auth_responder_confirm(&transcript, &init_sig_pub, &sig_i) { "OK" } else { "FAIL" }
+        Command::AuthResponderConfirm { transcript_hex, init_sig_pub_hex, sig_i_hex } => {
+            let ok = auth_responder_confirm(
+                &parse_hex_bytes(&transcript_hex), &parse_hex_bytes(&init_sig_pub_hex), &parse_hex_bytes(&sig_i_hex),
             );
+            println!("{}", if ok { "OK" } else { "FAIL" });
         }
-        "benchmm" => {
-            // chaos_core benchmm <n_maps> <mbytes>  -> throughput of the REAL shipped combiner.
-            let n_maps: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(DEFAULT_N_MAPS);
-            let mb: usize = args.get(3).map(|s| s.parse().unwrap()).unwrap_or(64);
-            let n = mb * 1024 * 1024;
+        Command::BenchMm { n_maps, mbytes } => {
+            let n_maps = n_maps.unwrap_or(DEFAULT_N_MAPS);
+            let n = mbytes * 1024 * 1024;
             let mut eng = MultiMapEngine::new(b"bench-master-key", b"bench-nonce", n_maps);
-            let _ = eng.keystream(1 << 16); // warm
-            let t0 = Instant::now();
-            let mut sink: u64 = 0;
-            let mut produced = 0usize;
-            while produced < n {
-                let chunk = eng.keystream(1 << 20);
-                for b in &chunk {
-                    sink ^= *b as u64;
-                }
-                produced += chunk.len();
-            }
-            let dt = t0.elapsed().as_secs_f64();
-            let mbps = (produced as f64 / (1024.0 * 1024.0)) / dt;
-            eprintln!("checksum {sink}");
-            println!("{n_maps}-map: {mbps:.2} MB/s  ({mb} MB in {dt:.3}s)");
-        }
-        "bench" => {
-            let mb: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(64);
-            let n = mb * 1024 * 1024;
-            let mut eng = ChaosEngine::new(
-                0x0123_4567_89AB_CDEF_0123_4567_89AB_CDEF,
-                0xFEDC_BA98_7654_3210_FEDC_BA98_7654_3210,
-                0xA5A5_A5A5,
-            );
-            // warm a little, then time
             let _ = eng.keystream(1 << 16);
             let t0 = Instant::now();
             let mut sink: u64 = 0;
             let mut produced = 0usize;
             while produced < n {
                 let chunk = eng.keystream(1 << 20);
-                for b in &chunk {
-                    sink ^= *b as u64;
-                }
+                for b in &chunk { sink ^= *b as u64; }
                 produced += chunk.len();
             }
             let dt = t0.elapsed().as_secs_f64();
             let mbps = (produced as f64 / (1024.0 * 1024.0)) / dt;
-            eprintln!("checksum {sink}"); // keep the optimizer honest
-            println!("{mbps:.2} MB/s  ({mb} MB in {dt:.3}s)");
+            eprintln!("checksum {sink}");
+            println!("{n_maps}-map: {mbps:.2} MB/s  ({mbytes} MB in {dt:.3}s)");
         }
-        "timing" => {
-            // Constant-time probe: does the per-byte step time depend on the SECRET?
-            // Each key gets a different secret control parameter -> different break-point p / (HALF-p),
-            // the very values the OLD hardware divide leaked. We time ns/byte for many keys and report
-            // the spread (max-min)/mean. A small spread = timing independent of the secret = no leak.
-            let keys: usize = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(64);
-            let bytes_per_key = 1 << 20; // 1 MB per key
-            let reps = 15; // min over reps = each key's true compute floor (noise only adds time)
-            // deterministic spread of controls across the whole valid p-band
+        Command::Bench { mbytes } => {
+            let n = mbytes * 1024 * 1024;
+            let mut eng = ChaosEngine::new(
+                0x0123_4567_89AB_CDEF_0123_4567_89AB_CDEF,
+                0xFEDC_BA98_7654_3210_FEDC_BA98_7654_3210,
+                0xA5A5_A5A5,
+            );
+            let _ = eng.keystream(1 << 16);
+            let t0 = Instant::now();
+            let mut sink: u64 = 0;
+            let mut produced = 0usize;
+            while produced < n {
+                let chunk = eng.keystream(1 << 20);
+                for b in &chunk { sink ^= *b as u64; }
+                produced += chunk.len();
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            let mbps = (produced as f64 / (1024.0 * 1024.0)) / dt;
+            eprintln!("checksum {sink}");
+            println!("{mbps:.2} MB/s  ({mbytes} MB in {dt:.3}s)");
+        }
+        Command::Timing { keys } => {
+            let bytes_per_key = 1 << 20;
+            let reps = 15;
             let mut times: Vec<f64> = Vec::with_capacity(keys);
             for k in 0..keys {
-                // vary the control parameter widely and oddly so p lands all over [MIN_P, HALF-MIN_P]
                 let control = (k as u128)
                     .wrapping_mul(0x9E37_79B9_7F4A_7C15_1234_5678_9ABC_DEF1)
                     .wrapping_add(0xA5A5_A5A5_5A5A_5A5A);
                 let mut best = f64::INFINITY;
                 for _ in 0..reps {
                     let mut eng = ChaosEngine::new(0xDEAD_BEEF, control, 0xC0FFEE);
-                    let _ = eng.keystream(1 << 14); // warm
+                    let _ = eng.keystream(1 << 14);
                     let t0 = Instant::now();
                     let chunk = eng.keystream(bytes_per_key);
                     let dt = t0.elapsed().as_secs_f64();
                     let mut sink = 0u64;
-                    for b in &chunk {
-                        sink ^= *b as u64;
-                    }
+                    for b in &chunk { sink ^= *b as u64; }
                     std::hint::black_box(sink);
                     let ns_per_byte = dt * 1e9 / bytes_per_key as f64;
-                    if ns_per_byte < best {
-                        best = ns_per_byte; // min-of-reps = the clean run, least disturbed by noise
-                    }
+                    if ns_per_byte < best { best = ns_per_byte; }
                 }
                 times.push(best);
             }
-            // Robust spread: each key's value is already its min-of-reps (true compute floor, since
-            // OS/cache noise can only ADD time). If timing leaked the secret, these floors would
-            // systematically differ. Report median and a percentile-based spread (p95-min)/median so a
-            // single scheduler hiccup can't masquerade as a leak — the same lesson as the ratchet seam.
             times.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let median = times[times.len() / 2];
             let lo = times[0];
             let p95 = times[(times.len() * 95 / 100).min(times.len() - 1)];
             let hi = times[times.len() - 1];
             let spread = (p95 - lo) / median * 100.0;
-            println!(
-                "keys={keys}  ns/byte floors: min {lo:.3}  median {median:.3}  p95 {p95:.3}  max {hi:.3}"
-            );
-            println!(
-                "secret-dependent spread (p95-min)/median: {spread:.2}%  (small = no key-dependent timing)"
-            );
-        }
-        _ => {
-            eprintln!("usage: chaos_core ks <seed> <control> <nonce> <n>");
-            eprintln!("       chaos_core from_master <key_hex> <nonce_hex> <n>");
-            eprintln!("       chaos_core multimap <key_hex> <nonce_hex> <n_maps> <n>");
-            eprintln!("       chaos_core ratchet <key_hex> <nonce_hex> <epoch_bytes> <n>");
-            eprintln!("       chaos_core aead_seal <key_hex> <nonce_hex> <aad_hex> <pt_hex> <n_maps>");
-            eprintln!("       chaos_core aead_open <key_hex> <aad_hex> <blob_hex> <n_maps>");
-            eprintln!("       chaos_core stream_seal <key_hex> <salt_hex> <aad_hex> <n_maps> <chunk_hex>...");
-            eprintln!("       chaos_core stream_open <key_hex> <aad_hex> <n_maps> <blob_hex>");
-            eprintln!("       chaos_core ratchet_aead_seal <master_hex> <nonce_hex> <aad_hex> <n_maps> <inner_nonce_hex> <pt_hex>...");
-            eprintln!("       chaos_core ratchet_aead_open <master_hex> <nonce_hex> <aad_hex> <n_maps> <wire_hex>...");
-            eprintln!("       chaos_core twolock_seal <master_hex> <outer_nonce_hex> <inner_nonce_hex> <aad_hex> <pt_hex> <inner_alg> <n_maps>");
-            eprintln!("       chaos_core twolock_open <master_hex> <aad_hex> <blob_hex> <n_maps>");
-            eprintln!("       chaos_core dh_public <private_hex>");
-            eprintln!("       chaos_core dh_raw_shared <private_hex> <peer_public_hex>");
-            eprintln!("       chaos_core dh_shared_key <private_hex> <peer_public_hex> <info_hex>");
-            eprintln!("       chaos_core mlkem_ek <seed_hex>");
-            eprintln!("       chaos_core mlkem_encapsulate <ek_hex> <m_hex>");
-            eprintln!("       chaos_core mlkem_decapsulate <seed_hex> <ct_hex>");
-            eprintln!("       chaos_core hybrid_combine <classical_hex> <pq_hex> <info_hex> <dh_a_hex> <dh_b_hex> <kem_pk_a_hex> <kem_ct_hex>");
-            eprintln!("       chaos_core hybrid_respond <dh_private_b_hex> <dh_peer_a_hex> <kem_pk_a_hex> <m_hex> <info_hex>");
-            eprintln!("       chaos_core hybrid_initiator_key <dh_private_a_hex> <kem_seed_hex> <dh_peer_b_hex> <kem_ct_hex> <info_hex>");
-            eprintln!("       chaos_core mldsa_public <seed_hex>");
-            eprintln!("       chaos_core mldsa_sign <seed_hex> <msg_hex>");
-            eprintln!("       chaos_core mldsa_verify <public_hex> <msg_hex> <sig_hex>");
-            eprintln!("       chaos_core auth_fingerprint <sig_public_hex> <static_public_hex>");
-            eprintln!("       chaos_core auth_transcript <init_sig_pub> <init_static_pub> <resp_sig_pub> <resp_static_pub> <dh_i> <kem_pk_i> <dh_r> <kem_ct>");
-            eprintln!("       chaos_core auth_combine <ee_hex> <pq_hex> <es_hex> <se_hex> <transcript_hex> <info_hex>");
-            eprintln!("       chaos_core auth_responder_respond <resp_sig_seed> <resp_static_priv> <resp_eph_priv> <init_sig_pub> <init_static_pub> <dh_i> <kem_pk_i> <kem_m> <info>");
-            eprintln!("       chaos_core auth_initiator_finish <init_sig_seed> <init_static_priv> <init_eph_priv> <init_kem_seed> <resp_sig_pub> <resp_static_pub> <dh_r> <kem_ct> <sig_r> <info>");
-            eprintln!("       chaos_core auth_responder_confirm <transcript_hex> <init_sig_pub_hex> <sig_i_hex>");
-            eprintln!("       chaos_core bench <mbytes>");
-            eprintln!("       chaos_core benchmm <n_maps> <mbytes>");
-            eprintln!("       chaos_core timing <keys>");
-            std::process::exit(2);
+            println!("keys={keys}  ns/byte floors: min {lo:.3}  median {median:.3}  p95 {p95:.3}  max {hi:.3}");
+            println!("secret-dependent spread (p95-min)/median: {spread:.2}%  (small = no key-dependent timing)");
         }
     }
 }

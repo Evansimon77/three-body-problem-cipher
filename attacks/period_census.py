@@ -53,7 +53,7 @@ from array import array
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine import DiscreteChaoticEngine, M as REAL_M, HALF as REAL_HALF, DEAD_STATE_FIX  # noqa: E402
-from multimap import DEFAULT_N_MAPS  # noqa: E402
+from constants import DEFAULT_N_MAPS  # noqa: E402
 
 
 def _p(msg=""):

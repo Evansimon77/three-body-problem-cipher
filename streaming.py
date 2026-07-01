@@ -51,8 +51,10 @@ import hashlib
 import hmac
 import os
 
+from aead import InvalidTag
 from commit import COMMIT_LEN, key_commitment, verify_commitment
-from multimap import DEFAULT_N_MAPS, MultiMapEngine
+from constants import DEFAULT_N_MAPS
+from multimap import MultiMapEngine
 
 SALT_LEN = 16
 TAG_LEN = 32                       # HMAC-SHA256
@@ -60,11 +62,6 @@ HEADER_LEN = SALT_LEN + COMMIT_LEN  # salt || commit
 _FINAL = 0x01                       # flags bit0
 _STREAM_MAC_INFO = b"chaos-pwlcm-v1|stream-mac-key"
 _LEN_BYTES = 4                      # frame length prefix (big-endian) for the convenience form
-
-
-class InvalidTag(Exception):
-    """Raised when a chunk fails authentication — wrong key, tampering, reorder, drop, duplicate,
-    or truncation."""
 
 
 def _stream_mac_key(master_key: bytes) -> bytes:

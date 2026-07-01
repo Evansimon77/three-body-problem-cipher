@@ -12,7 +12,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from commit import COMMIT_LEN  # noqa: E402
-from siv import SIV_LEN, InvalidTag, open_siv, seal_siv  # noqa: E402
+from aead import InvalidTag  # noqa: E402
+from siv import SIV_LEN, open_siv, seal_siv  # noqa: E402
 
 CT_START = COMMIT_LEN + SIV_LEN          # ciphertext begins after commit + siv in the wire format
 

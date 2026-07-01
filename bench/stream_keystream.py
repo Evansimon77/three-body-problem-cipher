@@ -19,8 +19,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from multimap import MultiMapEngine  # noqa: E402
-from ratchet import RatchetEngine    # noqa: E402
+from _harness import build_multimap, build_ratchet  # noqa: E402
 
 KEY = b"practrand-heavy-randomness-key"
 NONCE = b"practrand-heavy-randomness-nonce"
@@ -30,7 +29,7 @@ CHUNK = 1 << 16   # 64 KiB per write
 def main():
     which = sys.argv[1] if len(sys.argv) > 1 else "ratchet"
     max_mib = int(sys.argv[2]) if len(sys.argv) > 2 else 0
-    eng = RatchetEngine(KEY, NONCE) if which == "ratchet" else MultiMapEngine(KEY, NONCE)
+    eng = build_ratchet(KEY, NONCE) if which == "ratchet" else build_multimap(KEY, NONCE)
 
     out = sys.stdout.buffer
     written = 0

@@ -51,6 +51,8 @@ ml-kem = { version = "0.3.2", features = ["zeroize"] }
 # deterministic and the caller owns all randomness (the same no-OS-entropy discipline as ml-kem). `alloc`
 # gives the precomputed verifying key + Vec output; `zeroize` wipes the signing key on drop.
 ml-dsa = { version = "0.1.1", default-features = false, features = ["alloc", "zeroize"] }
+# CLI — structured argument parsing with --help for the research CLI.
+clap = { version = "4", features = ["derive"] }
 
 [profile.release]
 opt-level = 3

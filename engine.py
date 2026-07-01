@@ -73,6 +73,30 @@ def _finalize(z: int) -> int:
     return z
 
 
+def _kdf_hash(prefix: bytes, master_key: bytes, nonce: bytes, index: int | None = None) -> bytes:
+    """SHA-512 over prefix [|| index(2,BE) || '|'] || master_key || '|' || nonce.
+
+    Returns the raw 64-byte digest. Shared across from_master(), multimap._derive_engine(),
+    and ctr._block_engine() — one home, no copy-paste."""
+    import hashlib
+
+    h = hashlib.sha512(prefix)
+    if index is not None:
+        h.update(index.to_bytes(2, "big"))
+        h.update(b"|")
+    h.update(master_key)
+    h.update(b"|")
+    h.update(nonce)
+    return h.digest()
+
+
+def _derive_seed_control(h: bytes) -> tuple[int, int]:
+    """From a 64-byte hash, extract (seed_key: 0..M, control_parameter: 0..HALF)."""
+    seed_key = int.from_bytes(h[0:24], "big")
+    control = int.from_bytes(h[24:48], "big")
+    return seed_key, control
+
+
 class DiscreteChaoticEngine:
     """Integer PWLCM keystream generator + XOR stream cipher.
 
@@ -142,11 +166,8 @@ class DiscreteChaoticEngine:
         so a caller can NEVER accidentally pick a weak key — the hash output is uniform and
         the weak-parameter band is rejected in __init__ anyway. This is how the AEAD layer
         (aead.py) seeds the keystream. Deterministic => Alice and Bob still sync."""
-        import hashlib
-
-        h = hashlib.sha512(b"chaos-pwlcm-v1|seed|" + master_key + b"|" + nonce).digest()
-        seed_key = int.from_bytes(h[0:24], "big")      # 192 bits of state seed
-        control = int.from_bytes(h[24:48], "big")      # 192 bits -> mapped into safe band
+        h = _kdf_hash(b"chaos-pwlcm-v1|seed|", master_key, nonce)
+        seed_key, control = _derive_seed_control(h)
         return cls(seed_key, control, nonce=0)         # nonce already mixed into the hash
 
     def _next_state(self) -> None:
