@@ -27,7 +27,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from engine import _finalize, OUTPUT_BYTES_PER_STEP  # noqa: E402
+from engine import finalize, OUTPUT_BYTES_PER_STEP  # noqa: E402
 from constants import DEFAULT_N_MAPS  # noqa: E402
 from multimap import MultiMapEngine  # noqa: E402
 from known_plaintext import SmallPWLCM, recover_state    # noqa: E402
@@ -40,7 +40,7 @@ class SmallFinalizedPWLCM(SmallPWLCM):
 
     def out(self):
         self.step()
-        return (_finalize(self.x) >> 56) & 0xFF   # top byte of the nonlinear finalizer
+        return (finalize(self.x) >> 56) & 0xFF   # top byte of the nonlinear finalizer
 
 
 # ---------- PART 1: the output no longer reveals any contiguous slice of the state ----------

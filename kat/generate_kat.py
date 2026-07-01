@@ -14,7 +14,7 @@ output." Once frozen, it is the contract the cipher can never silently break:
     matches" — the same role NIST's KATs play for AES/SHA implementations.
 
 WHAT IS COVERED — every DETERMINISTIC layer the port must reproduce, bottom-up:
-  1. finalize     — the nonlinear ARX output mixer (_finalize), the trickiest bit-math.
+  1. finalize     — the nonlinear ARX output mixer (finalize), the trickiest bit-math.
   2. engine_raw   — the integer PWLCM core keystream from fixed (seed, control, nonce),
                     including the all-zero key edge (exercises the init avalanche + dead-state).
   3. from_master  — the hash-KDF seeding path the AEAD layers actually use.
@@ -65,9 +65,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aead import _tag  # noqa: E402
+from aead import tag  # noqa: E402
 from commit import key_commitment  # noqa: E402
-from engine import M, DiscreteChaoticEngine, _finalize  # noqa: E402
+from engine import finalize, M, DiscreteChaoticEngine  # noqa: E402
 from keyexchange import P, DHParty  # noqa: E402
 from pq_keyexchange import (  # noqa: E402
     MLKEM_AVAILABLE, _combine, _transcript, mlkem,
@@ -130,7 +130,7 @@ def compute_vectors() -> dict:
     finalize_inputs = [0, 1, 2, M - 1, M, M // 2, (1 << 64), (1 << 127) - 3,
                        0xDEADBEEFCAFEBABE, 0x0123456789ABCDEF0123456789ABCDEF]
     v["finalize"] = [
-        {"z": hex(z), "out": hex(_finalize(z))} for z in finalize_inputs
+        {"z": hex(z), "out": hex(finalize(z))} for z in finalize_inputs
     ]
 
     # 2. engine_raw — the bare PWLCM core. Includes the all-zero-key edge (init avalanche).
@@ -178,7 +178,7 @@ def compute_vectors() -> dict:
     aead_nmaps = 4
     aead_ct = MultiMapEngine(_KEY_BYTES, aead_nonce, n_maps=aead_nmaps).encrypt(aead_pt)
     aead_commit = key_commitment(_KEY_BYTES, aead_nonce, aead_aad)
-    aead_tag = _tag(_KEY_BYTES, aead_nonce, aead_commit, aead_aad, aead_ct)
+    aead_tag = tag(_KEY_BYTES, aead_nonce, aead_commit, aead_aad, aead_ct)
     v["aead"] = {"key": _KEY_BYTES.hex(), "nonce": aead_nonce.hex(), "aad": aead_aad.hex(),
                  "plaintext": aead_pt.hex(), "n_maps": aead_nmaps,
                  "blob": (aead_nonce + aead_commit + aead_ct + aead_tag).hex()}

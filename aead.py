@@ -52,7 +52,7 @@ def _mac_key(master_key: bytes) -> bytes:
     return hmac.new(master_key, _MAC_INFO, hashlib.sha256).digest()
 
 
-def _tag(master_key: bytes, nonce: bytes, commit: bytes, aad: bytes, ciphertext: bytes) -> bytes:
+def tag(master_key: bytes, nonce: bytes, commit: bytes, aad: bytes, ciphertext: bytes) -> bytes:
     """Authenticate nonce + commitment + AAD + ciphertext (encrypt-then-MAC). Length-prefix AAD so
     (aad, ct) boundaries can't be shifted by an attacker. Covering the commitment means the whole
     blob sits under one integrity boundary."""
@@ -86,8 +86,8 @@ def seal(master_key: bytes, plaintext: bytes, aad: bytes = b"",
         raise ValueError(f"nonce must be exactly {NONCE_LEN} bytes")
     ciphertext = MultiMapEngine(master_key, nonce, n_maps).encrypt(plaintext)
     commit = key_commitment(master_key, nonce, aad)
-    tag = _tag(master_key, nonce, commit, aad, ciphertext)
-    return nonce + commit + ciphertext + tag
+    computed_tag = tag(master_key, nonce, commit, aad, ciphertext)
+    return nonce + commit + ciphertext + computed_tag
 
 
 def open_(master_key: bytes, blob: bytes, aad: bytes = b"",
@@ -99,11 +99,11 @@ def open_(master_key: bytes, blob: bytes, aad: bytes = b"",
         raise InvalidTag("ciphertext too short / malformed")
     nonce = blob[:NONCE_LEN]
     commit = blob[NONCE_LEN:NONCE_LEN + COMMIT_LEN]
-    tag = blob[-TAG_LEN:]
+    received_tag = blob[-TAG_LEN:]
     ciphertext = blob[NONCE_LEN + COMMIT_LEN:-TAG_LEN]
 
-    expected = _tag(master_key, nonce, commit, aad, ciphertext)
-    if not hmac.compare_digest(expected, tag):       # constant-time: no timing leak
+    expected = tag(master_key, nonce, commit, aad, ciphertext)
+    if not hmac.compare_digest(expected, received_tag):       # constant-time: no timing leak
         raise InvalidTag("authentication failed — wrong key or tampered ciphertext")
     # Key-commitment (#6): this blob must commit to exactly THIS key. Independent of the tag, so the
     # property holds even if the MAC-key derivation had a weakness. Constant-time compare inside.

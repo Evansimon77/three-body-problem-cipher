@@ -54,6 +54,7 @@ DE2BCBF6955817183995497CEA956AE515D2261898FA0510
 """
 P = int(_P_HEX.replace("\n", "").replace(" ", ""), 16)
 G = 2
+DH_BYTES = (P.bit_length() + 7) // 8  # 256 bytes for the 2048-bit group
 _PRIV_BITS = 256       # exponent size — 128-bit security, matched to the 2048-bit group
 _KDF_LABEL = b"chaos-pwlcm-v1|dh-shared-key"
 
@@ -96,7 +97,7 @@ class DHParty:
         which hashes this. Never hand the raw element to a cipher directly — it has algebraic bias."""
         self._validate_peer(peer_public)
         secret = pow(peer_public, self._private, P)
-        return secret.to_bytes((P.bit_length() + 7) // 8, "big")
+        return secret.to_bytes(DH_BYTES, "big")
 
     def shared_key(self, peer_public: int, info: bytes = b"") -> bytes:
         """Compute the shared secret g^(ab) mod p, then hash it down to a 32-byte master key.

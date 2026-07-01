@@ -44,17 +44,10 @@ Validated in attacks/ratchet_aead_attack.py.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
-
 from aead import InvalidTag, open_, seal
+from ratchet import _kdf
 
 _V = b"chaos-ratchet-aead-v1|"
-
-
-def _kdf(key: bytes, label: bytes) -> bytes:
-    """One-way key-derivation step (HMAC-SHA256) — the chain's only primitive, as in ratchet.py."""
-    return hmac.new(key, label, hashlib.sha256).digest()
 
 
 def _init_chain(master_key: bytes, nonce: bytes) -> bytes:

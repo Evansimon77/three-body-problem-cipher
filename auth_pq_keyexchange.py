@@ -61,7 +61,7 @@ from __future__ import annotations
 import hashlib
 from typing import NamedTuple
 
-from keyexchange import P, DHParty
+from keyexchange import DH_BYTES, DHParty
 
 # Post-quantum primitives live in cryptography's OpenSSL 3.5+ backend. Guard the imports so the rest
 # of the project still loads on an older OpenSSL; callers get a clear error and tests auto-skip.
@@ -74,7 +74,6 @@ except Exception:                                    # pragma: no cover - platfo
 _KDF_LABEL = b"chaos-pwlcm-v1|auth-pq|dh2048+mlkem768+mldsa65|v1"
 _SIG_CTX_INITIATOR = b"chaos-pwlcm-v1|auth-pq|sig|initiator|v1"
 _SIG_CTX_RESPONDER = b"chaos-pwlcm-v1|auth-pq|sig|responder|v1"
-_DH_BYTES = (P.bit_length() + 7) // 8                # 256 bytes for the 2048-bit group
 
 
 def _require_pq() -> None:
@@ -95,7 +94,7 @@ class PublicIdentity(NamedTuple):
         """Short human-verifiable hash binding BOTH identity keys, so one check covers both."""
         h = hashlib.sha256()
         h.update(self.sig_public)
-        h.update(self.static_public.to_bytes(_DH_BYTES, "big"))
+        h.update(self.static_public.to_bytes(DH_BYTES, "big"))
         return h.hexdigest()[:16]
 
 
@@ -121,7 +120,7 @@ class Identity:
 
 
 def _enc_dh(x: int) -> bytes:
-    return x.to_bytes(_DH_BYTES, "big")
+    return x.to_bytes(DH_BYTES, "big")
 
 
 def _transcript(init: PublicIdentity, resp: PublicIdentity,
@@ -272,7 +271,7 @@ if __name__ == "__main__":
     bob = Responder(bob_id, alice_id.public)
     key = authenticated_pq_agree(alice, bob)
     print(f"\nkeys match (authenticated + post-quantum): {alice.key == bob.key}")
-    print(f"on the wire: dh {_DH_BYTES}B + kem_pk {len(alice.start().kem_pk_i)}B "
+    print(f"on the wire: dh {DH_BYTES}B + kem_pk {len(alice.start().kem_pk_i)}B "
           f"+ ml-dsa sig ~{len(bob_id._sign(b'x'))}B")
 
     # 2) End to end with the chaos AEAD.

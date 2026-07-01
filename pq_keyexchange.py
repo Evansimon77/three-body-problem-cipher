@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import hashlib
 
-from keyexchange import P, DHParty
+from keyexchange import DH_BYTES, DHParty
 
 # ML-KEM lives in cryptography's OpenSSL 3.5+ backend. Guard the import so the rest of the project
 # (and CI on an older OpenSSL) still loads; callers get a clear error, tests auto-skip.
@@ -57,7 +57,6 @@ except Exception:                                    # pragma: no cover - platfo
     MLKEM_AVAILABLE = False
 
 _KDF_LABEL = b"chaos-pwlcm-v1|pq-hybrid|dh-2048+ml-kem-768|v1"
-_DH_BYTES = (P.bit_length() + 7) // 8                # 256 bytes for the 2048-bit group
 
 
 def _require_mlkem() -> None:
@@ -70,7 +69,7 @@ def _require_mlkem() -> None:
 
 def _enc_dh(x: int) -> bytes:
     """Fixed-width encoding of a DH group element (so the transcript is unambiguous)."""
-    return x.to_bytes(_DH_BYTES, "big")
+    return x.to_bytes(DH_BYTES, "big")
 
 
 def _transcript(dh_a: int, dh_b: int, kem_pk_a: bytes, kem_ct: bytes) -> bytes:

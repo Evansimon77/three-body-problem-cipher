@@ -16,9 +16,10 @@
 
 use ruint::aliases::U256;
 
-// ---- grid constants (mirror engine.py exactly) ----
-pub(crate) const M: u128 = (1u128 << 127) - 1; // Mersenne prime M127
-pub(crate) const HALF: u128 = M / 2; // 2^126 - 1
+use crate::constants::{u, HALF, M};
+use crate::utils::lo128;
+
+/// The smallest key parameter ever accepted; rejects the weak-parameter band.
 pub(crate) const MIN_P: u128 = HALF >> 20;
 pub(crate) const DEAD_STATE_FIX: u128 = 0x5555_5555_5555_5555_5555_5555_5555_5555; // < M, so % M is itself
 
@@ -32,17 +33,6 @@ pub(crate) const OUTPUT_BYTES_PER_STEP: usize = 4;
 /// Scale of the precomputed reciprocal: V = floor(M * 2^RECIP_SHIFT / d). 127 gives a truncation
 /// error < 1/2 for every divisor in this map (all < 2^126), so a SINGLE branchless correction is exact.
 const RECIP_SHIFT: usize = 127;
-
-#[inline]
-pub(crate) fn u(v: u128) -> U256 {
-    U256::from_limbs([v as u64, (v >> 64) as u64, 0, 0])
-}
-
-#[inline]
-pub(crate) fn lo128(x: U256) -> u128 {
-    let l = x.as_limbs();
-    (l[0] as u128) | ((l[1] as u128) << 64)
-}
 
 /// Branchless constant-time select: returns `a` if `cond == 1`, else `b`. `cond` must be 0 or 1.
 #[inline]

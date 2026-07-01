@@ -33,9 +33,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from engine import _finalize, M, OUTPUT_BYTES_PER_STEP, DiscreteChaoticEngine  # noqa: E402
+from engine import finalize, M, OUTPUT_BYTES_PER_STEP, DiscreteChaoticEngine  # noqa: E402
 
-OUT_BITS = 64              # _finalize emits a 64-bit word
+OUT_BITS = 64              # finalize emits a 64-bit word
 STATE_BITS = M.bit_length()  # 127
 
 
@@ -72,9 +72,9 @@ def part1_avalanche(n=4000, seed=1):
     counts = [[0] * OUT_BITS for _ in range(STATE_BITS)]
     for _ in range(n):
         x = _rand_state(nxt)
-        base = _finalize(x)
+        base = finalize(x)
         for i in range(STATE_BITS):
-            d = _finalize(x ^ (1 << i)) ^ base
+            d = finalize(x ^ (1 << i)) ^ base
             ci = counts[i]
             # accumulate flipped output bits
             b = d
@@ -135,7 +135,7 @@ def part2_differentials(n=20000, seed=2):
         pop_sum = 0
         for _ in range(n // 4):  # fewer samples per delta, many deltas
             x = _rand_state(nxt)
-            d_out = _finalize(x) ^ _finalize(x ^ d_in)
+            d_out = finalize(x) ^ finalize(x ^ d_in)
             pop_sum += _popcount(d_out)
             b, j = d_out, 0
             while b:
@@ -177,7 +177,7 @@ def part3_output_vs_hidden(n=20000, seed=3):
     for _ in range(n):
         eng._next_state()
         st = eng.x
-        word = _finalize(st)
+        word = finalize(st)
         pub = word >> hid_bits           # top 32 bits
         hid = word & ((1 << hid_bits) - 1)  # low 32 bits
         for i in range(pub_bits):

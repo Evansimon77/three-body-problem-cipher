@@ -39,7 +39,7 @@ MASK64 = (1 << 64) - 1
 
 # --- Output hardening (#3 "frosted glass") + throughput (#4) -----------------------------------
 # We do NOT emit the raw state. Each chaotic step's state is run through a nonlinear finalizer
-# (_finalize) and we emit OUTPUT_BYTES_PER_STEP bytes of the result. This knob trades speed vs
+# (finalize) and we emit OUTPUT_BYTES_PER_STEP bytes of the result. This knob trades speed vs
 # security:
 #   * SECURITY: the finalizer (xorshift + multiply, "ARX") destroys the PWLCM's piecewise-LINEAR
 #     structure, so an attacker can't algebraically roll the output back to the state — closing the
@@ -51,7 +51,7 @@ MASK64 = (1 << 64) - 1
 OUTPUT_BYTES_PER_STEP = 4
 
 
-def _finalize(z: int) -> int:
+def finalize(z: int) -> int:
     """Nonlinear ARX 'frosted-glass' output filter (the SplitMix64 / MurmurHash3 fmix64 mixer).
 
     Maps the 127-bit chaotic state to a well-avalanched 64-bit word with xorshift + multiply. The
@@ -223,7 +223,7 @@ class DiscreteChaoticEngine:
         Replaces the old raw "(x >> 24) & 0xFF", which exposed the linear state directly."""
         if self._buf_i >= len(self._buf):
             self._next_state()
-            self._buf = _finalize(self.x).to_bytes(8, "big")[:OUTPUT_BYTES_PER_STEP]
+            self._buf = finalize(self.x).to_bytes(8, "big")[:OUTPUT_BYTES_PER_STEP]
             self._buf_i = 0
         b = self._buf[self._buf_i]
         self._buf_i += 1

@@ -10,10 +10,10 @@ use sha2::{Digest, Sha512};
 
 pub type HmacSha256 = Hmac<sha2::Sha256>;
 
-use crate::engine::{HALF, M, u};
+use crate::constants::{u, HALF, M};
 
 #[inline]
-fn lo128(x: U256) -> u128 {
+pub(crate) fn lo128(x: U256) -> u128 {
     let l = x.as_limbs();
     (l[0] as u128) | ((l[1] as u128) << 64)
 }

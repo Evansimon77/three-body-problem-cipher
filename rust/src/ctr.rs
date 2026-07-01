@@ -38,7 +38,8 @@ impl SeekableCtr {
         // We hand-build the hash since kdf_hash only takes one optional index.
         use ruint::aliases::U256;
         use sha2::{Digest, Sha512};
-        use crate::engine::{u, lo128, HALF, M};
+        use crate::constants::{u, HALF, M};
+        use crate::utils::lo128;
 
         let mut hasher = Sha512::new();
         hasher.update(CTR_PREFIX);
