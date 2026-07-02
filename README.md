@@ -143,3 +143,7 @@ See [`PROGRESS.md`](PROGRESS.md) for the full build history and roadmap.
 ## License
 
 [MIT](LICENSE) — free for any use, research or commercial. This project is unvetted; use at your own risk.
+
+---
+
+Built by **Evan Simonenko** · [asturai.com](https://asturai.com) · contact@asturai.com
